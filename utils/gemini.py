@@ -8,7 +8,7 @@ import requests
 GEMINI_URL_TEMPLATE = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 
 
-def _call_single_model(model, prompt, api_key, max_tries=3, wait_seconds=20):
+def _call_single_model(model, prompt, api_key, max_tries=2, wait_seconds=15):
     """يحاول موديل واحد بعدد محاولات محدد، يرجع النص أو None لو فشل"""
     url = GEMINI_URL_TEMPLATE.format(model=model)
     body = {"contents": [{"parts": [{"text": prompt}]}]}
