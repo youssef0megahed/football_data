@@ -18,7 +18,7 @@ FB_PAGE_ACCESS_TOKEN = os.environ.get("FB_PAGE_ACCESS_TOKEN", "")
 GEMINI_MODELS = ["gemini-3.1-pro", "gemini-3.6-flash", "gemini-3.5-flash-lite",]
 
 # أقصى عدد أخبار جديدة تتعالج في التشغيلة الواحدة
-MAX_ARTICLES_PER_RUN = 5
+MAX_ARTICLES_PER_RUN = 1
 
 # أقصى عدد أخبار تُجلب من كل مصدر قبل الفلترة
 LINKS_PER_SOURCE = 5
