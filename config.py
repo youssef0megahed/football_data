@@ -15,7 +15,7 @@ FB_PAGE_ID = os.environ.get("FB_PAGE_ID", "")
 FB_PAGE_ACCESS_TOKEN = os.environ.get("FB_PAGE_ACCESS_TOKEN", "")
 
 # نماذج Gemini بترتيب المحاولة (الأقوى الأول، ثم البديل عند الفشل)
-GEMINI_MODELS = ["gemini-3.1-pro", "gemini-3.6-flash", "gemini-3.5-flash-lite"]
+GEMINI_MODELS = ["gemini-3.1-pro", "gemini-3.6-flash",]
 
 # أقصى عدد أخبار جديدة تتعالج في التشغيلة الواحدة
 MAX_ARTICLES_PER_RUN = 5
