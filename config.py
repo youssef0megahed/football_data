@@ -36,9 +36,8 @@ RSS_SOURCES = [
     ("InsideWorldFootball", "https://www.insideworldfootball.com/feed"),
     ("CaughtOffside", "https://www.caughtoffside.com/feed"),
     ("Football365", "https://www.football365.com/feed"),
+    ("Guardian", "https://www.theguardian.com/football/rss"),
 ]
-
-GUARDIAN_URL = "https://content.guardianapis.com/football"
 
 # api-football
 API_FOOTBALL_BASE = "https://api-football-v1.p.rapidapi.com/v3"
