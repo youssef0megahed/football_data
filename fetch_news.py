@@ -1,77 +1,54 @@
 """
 السكريبت الرئيسي لبوت الأخبار.
-بيسحب من كل المصادر، يفحص التكرار، يترجم ويصيغ (مع تعلم من تصحيحات سابقة)، يولد صورة، ويبعت تليجرام.
+نسخة مبسّطة: طلبين Gemini بس لكل خبر (بدل 6) لتقليل استهلاك الحصة.
 """
 import config
 from utils import rss_sources, extractor, gemini, supabase_client, telegram, image_gen
 
 
-def build_translate_prompt(title, body):
-    return f"""انت مترجم صحفي محترف. ترجم الخبر ده من الإنجليزية للعربية الفصحى الصحفية، بأسلوب طبيعي مش حرفي. حافظ على كل الحقائق والأرقام والأسماء زي ما هي بالظبط. رجّع الترجمة فقط بدون أي شرح.
-
-العنوان: {title}
-
-النص: {body}"""
-
-
-def build_review_translation_prompt(original, translated):
-    return f"""انت مراجع لغوي. قارن النص الأصلي بالترجمة. تأكد إن كل حقيقة ورقم واسم اتنقل صح. لو فيه خطأ صححه. رجّع النسخة النهائية فقط.
-
-النص الأصلي: {original}
-
-الترجمة: {translated}"""
-
-
-def build_rewrite_prompt(article_text, correction_examples):
+def build_main_prompt(title, body, correction_examples):
     examples_block = ""
     if correction_examples:
-        examples_block = "\n\nأمثلة على تصحيحات سابقة، خد بالك من نفس الأسلوب والملاحظات دي:\n"
+        examples_block = "\n\nأمثلة على تصحيحات سابقة، خد بالك من نفس الأسلوب:\n"
         for i, ex in enumerate(correction_examples, 1):
-            examples_block += f"\nمثال {i}:\nالمسودة الأصلية: {ex['original_ai_text']}\nالنسخة المصححة (الأفضل): {ex['corrected_text']}\n"
+            examples_block += f"\nمثال {i}:\nالمسودة الأصلية: {ex['original_ai_text']}\nالنسخة الأفضل: {ex['corrected_text']}\n"
 
-    return f"""انت محرر أخبار رياضية في صحيفة كبرى. اكتب منشور سوشيال ميديا مختصر عن الخبر ده، بالشكل ده بالظبط:
-- سطر أول: إيموجي كورة قدم ⚽ متبوع بعنوان قصير جذاب (سطر واحد)
-- سطر فاضي
-- فقرة أولى: 2-3 جمل تلخص الخبر الأساسي
-- سطر فاضي
-- فقرة تانية: 2-3 جمل فيها تفاصيل أو سياق إضافي
+    return f"""انت محرر أخبار رياضية محترف. نفّذ الخطوات دي بالترتيب على الخبر اللي هبعتهولك:
 
-الحد الأقصى الإجمالي 600 حرف. رجّع الرد بصيغة JSON فقط بالشكل ده: {{"title": "العنوان مع الإيموجي", "body": "الفقرتين مع بعض"}}
+1. ترجم الخبر من الإنجليزية للعربية الفصحى الصحفية بدقة، محافظاً على كل الحقائق والأرقام والأسماء.
+2. أعد صياغته كمنشور سوشيال ميديا مختصر: عنوان جذاب (سطر واحد يبدأ بإيموجي ⚽)، وفقرتين قصار (2-3 جمل لكل فقرة) تلخصان الخبر. الحد الأقصى الإجمالي 600 حرف.
+3. تأكد إن الصياغة مش قريبة جداً من الأصل (بأسلوبك الخاص، مش نسخ).
+4. اكتب وصف تصويري بالإنجليزية لصورة تعبيرية عامة عن الخبر (ملعب، كرة، أضواء استاد، بدون وجوه حقيقية أو شعارات أو نصوص).
 {examples_block}
-الخبر: {article_text}"""
+رجّع الرد بصيغة JSON فقط بالشكل ده بالظبط، من غير أي شرح إضافي:
+{{"title": "العنوان مع الإيموجي", "body": "الفقرتين مع بعض", "image_prompt": "الوصف بالإنجليزية"}}
+
+العنوان الأصلي: {title}
+
+النص الأصلي: {body}"""
 
 
-def build_check_similarity_prompt(original, rewritten):
-    return f"""قارن النص المُعاد صياغته بالنص الأصلي. لو فيه جملة أو أكتر قريبة جداً من الأصل، أعد كتابتها بأسلوب مختلف. رجّع الرد بنفس صيغة JSON: {{"title": "...", "body": "..."}}
+def build_final_review_prompt(original_body, draft_json_text):
+    return f"""راجع المسودة دي قبل النشر النهائي. تأكد من: (1) دقة نقل الحقائق عن الأصل، (2) العنوان والنص ووصف الصورة متسقين مع بعض، (3) الصياغة مش قريبة جداً من الأصل. صحح أي مشكلة لو موجودة. رجّع بنفس صيغة JSON فقط: {{"title": "...", "body": "...", "image_prompt": "..."}}
 
-الأصل: {original}
+النص الأصلي: {original_body}
 
-المُعاد صياغته: {rewritten}"""
-
-
-def build_image_prompt(article_text):
-    return f"""اكتب وصف تصويري (image prompt) بالإنجليزية فقط لصورة تعبيرية عامة عن خبر كورة قدم، من غير محاولة رسم وجوه لاعبين حقيقيين أو شعارات أندية أو أي نص مكتوب داخل الصورة. ركّز على عناصر بصرية رمزية زي: ملعب، كرة قدم، أضواء الاستاد، ألوان عامة، جمهور من بعيد بدون ملامح واضحة. الأسلوب: تصوير احترافي سينمائي، بدون تفاصيل دقيقة لوجوه أو نصوص. رجّع الوصف فقط بدون أي شرح.
-
-الخبر: {article_text}"""
+المسودة: {draft_json_text}"""
 
 
-def build_final_review_prompt(title, body, image_prompt):
-    return f"""راجع الخبر ده قبل النشر النهائي. تأكد إن العنوان والنص ووصف الصورة متسقين ومنطقيين مع بعض. لو كل حاجة تمام رجّع نفس المحتوى، ولو فيه مشكلة صححها. رجّع JSON فقط: {{"title": "...", "body": "..."}}
-
-العنوان: {title}
-النص: {body}
-وصف الصورة المستخدمة: {image_prompt}"""
-
-
-def parse_json_safe(text, fallback_title="", fallback_body=""):
+def parse_json_safe(text, fallback_title="", fallback_body="", fallback_image=""):
     import json
     import re
     try:
         cleaned = re.sub(r"```json|```", "", text).strip()
         parsed = json.loads(cleaned)
-        return parsed.get("title", fallback_title), parsed.get("body", fallback_body)
+        return (
+            parsed.get("title", fallback_title),
+            parsed.get("body", fallback_body),
+            parsed.get("image_prompt", fallback_image),
+        )
     except Exception:
-        return fallback_title, fallback_body
+        return fallback_title, fallback_body, fallback_image
 
 
 def process_article(source_name, link, correction_examples):
@@ -88,44 +65,32 @@ def process_article(source_name, link, correction_examples):
 
     title, body = article["title"], article["text"]
 
-    translation = gemini.call_gemini(build_translate_prompt(title, body), config.GEMINI_API_KEY, config.GEMINI_MODELS)
-    if not translation:
-        print("  فشلت الترجمة، تخطي.")
+    # الطلب الأول: ترجمة + صياغة + فحص تطابق + وصف صورة، كل ده مع بعض
+    draft_raw = gemini.call_gemini(
+        build_main_prompt(title, body, correction_examples), config.GEMINI_API_KEYS, config.GEMINI_MODELS
+    )
+    if not draft_raw:
+        print("  فشلت المعالجة الأساسية، تخطي.")
         return False
 
-    reviewed_translation = gemini.call_gemini(
-        build_review_translation_prompt(body, translation), config.GEMINI_API_KEY, config.GEMINI_MODELS
-    )
-    reviewed_translation = reviewed_translation or translation
-
-    rewrite_raw = gemini.call_gemini(
-        build_rewrite_prompt(reviewed_translation, correction_examples), config.GEMINI_API_KEY, config.GEMINI_MODELS
-    )
-    if not rewrite_raw:
-        print("  فشلت إعادة الصياغة، تخطي.")
+    r_title, r_body, image_prompt = parse_json_safe(draft_raw)
+    if not r_title or not r_body:
+        print("  فشل تحليل الرد، تخطي.")
         return False
-    r_title, r_body = parse_json_safe(rewrite_raw)
-    ai_draft_text = f"{r_title}\n\n{r_body}"  # هنحتفظ بيها لو حصل تعديل لاحقاً
 
-    check_raw = gemini.call_gemini(
-        build_check_similarity_prompt(body, ai_draft_text), config.GEMINI_API_KEY, config.GEMINI_MODELS
-    )
-    if check_raw:
-        r_title, r_body = parse_json_safe(check_raw, r_title, r_body)
+    ai_draft_text = f"{r_title}\n\n{r_body}"
 
-    image_prompt = gemini.call_gemini(
-        build_image_prompt(r_title + "\n" + r_body), config.GEMINI_API_KEY, config.GEMINI_MODELS
-    )
-    image_prompt = image_prompt or "professional football stadium, cinematic lighting, no faces, no text"
-
-    image_url = image_gen.generate_image_url(image_prompt)
-
+    # الطلب الثاني: مراجعة نهائية شاملة
     final_raw = gemini.call_gemini(
-        build_final_review_prompt(r_title, r_body, image_prompt), config.GEMINI_API_KEY, config.GEMINI_MODELS
+        build_final_review_prompt(body, draft_raw), config.GEMINI_API_KEYS, config.GEMINI_MODELS
     )
     if final_raw:
-        r_title, r_body = parse_json_safe(final_raw, r_title, r_body)
+        r_title, r_body, image_prompt = parse_json_safe(final_raw, r_title, r_body, image_prompt)
 
+    if not image_prompt:
+        image_prompt = "professional football stadium, cinematic lighting, no faces, no text"
+
+    image_url = image_gen.generate_image_url(image_prompt)
     caption = f"{r_title}\n\n{r_body}"
 
     row = supabase_client.insert_article(
@@ -160,21 +125,6 @@ def main():
     )
     print(f"عدد أمثلة التصحيح المستخدمة: {len(correction_examples)}")
 
-    # الجارديان (API رسمي)
-    try:
-        import requests
-        resp = requests.get(config.GUARDIAN_URL, params={
-            "api-key": config.GUARDIAN_API_KEY,
-            "show-fields": "body,headline",
-            "page-size": 5,
-        }, timeout=20)
-        if resp.status_code == 200:
-            results = resp.json().get("response", {}).get("results", [])
-            for r in results:
-                all_candidates.append(("Guardian", r.get("webUrl")))
-    except Exception as e:
-        print(f"خطأ في جلب الجارديان: {e}")
-        
     for source_name, rss_url in config.RSS_SOURCES:
         links = rss_sources.get_latest_links(rss_url, limit=config.LINKS_PER_SOURCE)
         for item in links:
