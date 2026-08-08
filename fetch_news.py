@@ -160,6 +160,7 @@ def main():
     )
     print(f"عدد أمثلة التصحيح المستخدمة: {len(correction_examples)}")
 
+    # الجارديان (API رسمي)
     try:
         import requests
         resp = requests.get(config.GUARDIAN_URL, params={
@@ -173,7 +174,7 @@ def main():
                 all_candidates.append(("Guardian", r.get("webUrl")))
     except Exception as e:
         print(f"خطأ في جلب الجارديان: {e}")
-
+        
     for source_name, rss_url in config.RSS_SOURCES:
         links = rss_sources.get_latest_links(rss_url, limit=config.LINKS_PER_SOURCE)
         for item in links:
