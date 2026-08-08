@@ -8,6 +8,7 @@ on:
 jobs:
   run-news-bot:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -22,7 +23,6 @@ jobs:
 
       - name: Run news bot
         env:
-          GUARDIAN_API_KEY: ${{ secrets.GUARDIAN_API_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
