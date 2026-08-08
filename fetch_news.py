@@ -67,7 +67,7 @@ def process_article(source_name, link, correction_examples):
 
     # الطلب الأول: ترجمة + صياغة + فحص تطابق + وصف صورة، كل ده مع بعض
     draft_raw = gemini.call_gemini(
-        build_main_prompt(title, body, correction_examples), config.GEMINI_API_KEYS, config.GEMINI_MODELS
+        build_main_prompt(title, body, correction_examples), config.GEMINI_API_KEY, config.GEMINI_MODELS
     )
     if not draft_raw:
         print("  فشلت المعالجة الأساسية، تخطي.")
@@ -82,7 +82,7 @@ def process_article(source_name, link, correction_examples):
 
     # الطلب الثاني: مراجعة نهائية شاملة
     final_raw = gemini.call_gemini(
-        build_final_review_prompt(body, draft_raw), config.GEMINI_API_KEYS, config.GEMINI_MODELS
+        build_final_review_prompt(body, draft_raw), config.GEMINI_API_KEY, config.GEMINI_MODELS
     )
     if final_raw:
         r_title, r_body, image_prompt = parse_json_safe(final_raw, r_title, r_body, image_prompt)
