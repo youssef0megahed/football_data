@@ -67,7 +67,7 @@ def process_article(source_name, link, correction_examples):
 
     # الطلب الأول: ترجمة + صياغة + فحص تطابق + وصف صورة، كل ده مع بعض
     draft_raw = gemini.call_gemini(build_main_prompt(...), config.GEMINI_API_KEY, config.GEMINI_MODELS, config.GROQ_API_KEY)
-    )
+    
     if not draft_raw:
         print("  فشلت المعالجة الأساسية، تخطي.")
         return False
