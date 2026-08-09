@@ -18,7 +18,7 @@ HCTI_API_KEY = os.environ.get("HCTI_API_KEY", "")
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
 
 # نماذج Gemini بترتيب المحاولة (الأقوى الأول، ثم البديل عند الفشل)
-GEMINI_MODELS = ["gemini-3.6-flash",]
+GEMINI_MODELS = ["gemini-3.1-pro","gemini-3.6-flash",]
 
 # أقصى عدد أخبار جديدة تتعالج في التشغيلة الواحدة
 MAX_ARTICLES_PER_RUN = 10
