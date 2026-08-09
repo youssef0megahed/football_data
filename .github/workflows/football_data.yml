@@ -25,4 +25,6 @@ jobs:
           RAPIDAPI_KEY: ${{ secrets.RAPIDAPI_KEY }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          HCTI_USER_ID: ${{ secrets.HCTI_USER_ID }}
+          HCTI_API_KEY: ${{ secrets.HCTI_API_KEY }}
         run: python football_data.py
