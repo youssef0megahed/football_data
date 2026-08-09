@@ -81,7 +81,7 @@ def process_article(source_name, link, correction_examples):
 
     # الطلب الثاني: مراجعة نهائية شاملة
     final_raw = gemini.call_gemini(build_main_prompt(...), config.GEMINI_API_KEY, config.GEMINI_MODELS, config.GROQ_API_KEY)
-    )
+    
     if final_raw:
         r_title, r_body, image_prompt = parse_json_safe(final_raw, r_title, r_body, image_prompt)
 
