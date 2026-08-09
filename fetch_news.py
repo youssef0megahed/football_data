@@ -1,6 +1,6 @@
 """
 السكريبت الرئيسي لبوت الأخبار.
-نسخة مبسّطة: طلبين Gemini بس لكل خبر (بدل 6) لتقليل استهلاك الحصة.
+طلبين Gemini بس لكل خبر، مع Groq كشبكة أمان لو Gemini فشل بالكامل.
 """
 import config
 from utils import rss_sources, extractor, gemini, supabase_client, telegram, image_gen
@@ -13,7 +13,9 @@ def build_main_prompt(title, body, correction_examples):
         for i, ex in enumerate(correction_examples, 1):
             examples_block += f"\nمثال {i}:\nالمسودة الأصلية: {ex['original_ai_text']}\nالنسخة الأفضل: {ex['corrected_text']}\n"
 
-    return f"""انت محرر أخبار رياضية محترف. نفّذ الخطوات دي بالترتيب على الخبر اللي هبعتهولك:
+    return f"""انت محرر أخبار رياضية محترف. النص اللي هبعتهولك ممكن يحتوي على أكتر من خبر أو موضوع منفصل مجمّعين في نفس الصفحة. لو حصل كده، ركّز على الموضوع الرئيسي أو الأول بس تماماً، واتجاهل أي مواضيع تانية غير مرتبطة بيه، حتى لو كانت قصيرة. لو مش متأكد من اسم لاعب أو تهجئته، استخدم أكتر تهجئة شائعة ومعروفة له.
+
+نفّذ الخطوات دي بالترتيب على الخبر اللي هبعتهولك:
 
 1. ترجم الخبر من الإنجليزية للعربية الفصحى الصحفية بدقة، محافظاً على كل الحقائق والأرقام والأسماء.
 2. أعد صياغته كمنشور سوشيال ميديا مختصر: عنوان جذاب (سطر واحد يبدأ بإيموجي ⚽)، وفقرتين قصار (2-3 جمل لكل فقرة) تلخصان الخبر. الحد الأقصى الإجمالي 600 حرف.
@@ -65,9 +67,12 @@ def process_article(source_name, link, correction_examples):
 
     title, body = article["title"], article["text"]
 
-    # الطلب الأول: ترجمة + صياغة + فحص تطابق + وصف صورة، كل ده مع بعض
-    draft_raw = gemini.call_gemini(build_main_prompt(...), config.GEMINI_API_KEY, config.GEMINI_MODELS, config.GROQ_API_KEY)
-    
+    draft_raw = gemini.call_gemini(
+        build_main_prompt(title, body, correction_examples),
+        config.GEMINI_API_KEY,
+        config.GEMINI_MODELS,
+        config.GROQ_API_KEY,
+    )
     if not draft_raw:
         print("  فشلت المعالجة الأساسية، تخطي.")
         return False
@@ -79,9 +84,12 @@ def process_article(source_name, link, correction_examples):
 
     ai_draft_text = f"{r_title}\n\n{r_body}"
 
-    # الطلب الثاني: مراجعة نهائية شاملة
-    final_raw = gemini.call_gemini(build_main_prompt(...), config.GEMINI_API_KEY, config.GEMINI_MODELS, config.GROQ_API_KEY)
-    
+    final_raw = gemini.call_gemini(
+        build_final_review_prompt(body, draft_raw),
+        config.GEMINI_API_KEY,
+        config.GEMINI_MODELS,
+        config.GROQ_API_KEY,
+    )
     if final_raw:
         r_title, r_body, image_prompt = parse_json_safe(final_raw, r_title, r_body, image_prompt)
 
