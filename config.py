@@ -13,6 +13,8 @@ SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "")
 RAPIDAPI_KEY = os.environ.get("RAPIDAPI_KEY", "")
 FB_PAGE_ID = os.environ.get("FB_PAGE_ID", "")
 FB_PAGE_ACCESS_TOKEN = os.environ.get("FB_PAGE_ACCESS_TOKEN", "")
+HCTI_USER_ID = os.environ.get("HCTI_USER_ID", "")
+HCTI_API_KEY = os.environ.get("HCTI_API_KEY", "")
 
 # نماذج Gemini بترتيب المحاولة (الأقوى الأول، ثم البديل عند الفشل)
 GEMINI_MODELS = ["gemini-3.1-pro", "gemini-3.6-flash",]
