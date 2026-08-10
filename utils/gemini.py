@@ -1,13 +1,14 @@
 """
-استدعاء نماذج AI بنظام احتياطي عبر شركتين مختلفتين:
-1) Gemini (Pro ثم Flash) - جوجل
-2) Groq (Llama 3.3 70B) - شركة مختلفة تماماً، شبكة أمان لو Google وقعت أو اتضغطت
+استدعاء نماذج AI بترتيب محدد:
+1) Gemini Flash (أساسي)
+2) GLM (glm-4.7-flash) - شركة مختلفة تماماً، خط دفاع تاني
+3) Gemini Flash-Lite - ملاذ أخير
 """
 import time
 import requests
 
 GEMINI_URL_TEMPLATE = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
-GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
+GLM_URL = "https://api.z.ai/api/paas/v4/chat/completions"
 
 
 def _call_gemini_model(model, prompt, api_key, max_tries=2, wait_seconds=15):
@@ -31,23 +32,23 @@ def _call_gemini_model(model, prompt, api_key, max_tries=2, wait_seconds=15):
     return None
 
 
-def _call_groq(prompt, api_key, max_tries=2, wait_seconds=15):
+def _call_glm(prompt, api_key, max_tries=2, wait_seconds=15):
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
     body = {
-        "model": "llama-3.3-70b-versatile",
+        "model": "glm-4.7-flash",
         "messages": [{"role": "user", "content": prompt}],
     }
 
     for attempt in range(1, max_tries + 1):
         try:
-            resp = requests.post(GROQ_URL, headers=headers, json=body, timeout=60)
+            resp = requests.post(GLM_URL, headers=headers, json=body, timeout=60)
             if resp.status_code == 200:
                 data = resp.json()
                 return data["choices"][0]["message"]["content"]
             else:
-                print(f"    [Groq] محاولة {attempt}: فشل بكود {resp.status_code} - {resp.text[:150]}")
+                print(f"    [GLM] محاولة {attempt}: فشل بكود {resp.status_code} - {resp.text[:150]}")
         except Exception as e:
-            print(f"    [Groq] محاولة {attempt}: استثناء - {e}")
+            print(f"    [GLM] محاولة {attempt}: استثناء - {e}")
 
         if attempt < max_tries:
             time.sleep(wait_seconds)
@@ -55,26 +56,29 @@ def _call_groq(prompt, api_key, max_tries=2, wait_seconds=15):
     return None
 
 
-def call_gemini(prompt, api_key, models, groq_api_key=None):
+def call_gemini(prompt, gemini_api_key, glm_api_key=None):
     """
-    يجرب موديلات Gemini بالترتيب (Pro ثم Flash عادةً)، ولو فشلت كل الموديلات
-    والمفتاح البديل (Groq) متاح، يجرب Groq كملاذ أخير.
+    الترتيب: Gemini Flash -> GLM -> Gemini Flash-Lite
     """
-    for model in models:
-        print(f"  -> تجربة موديل {model}...")
-        result = _call_gemini_model(model, prompt, api_key)
-        if result is not None:
-            print(f"  -> نجح مع {model}")
-            return result
-        print(f"  -> {model} فشل، ننتقل للتالي")
+    print("  -> تجربة Gemini Flash...")
+    result = _call_gemini_model("gemini-3.6-flash", prompt, gemini_api_key)
+    if result is not None:
+        print("  -> نجح مع Gemini Flash")
+        return result
+    print("  -> Gemini Flash فشل، ننتقل لـ GLM")
 
-    if groq_api_key:
-        print("  -> كل نماذج Gemini فشلت، تجربة Groq (شبكة أمان)...")
-        result = _call_groq(prompt, groq_api_key)
+    if glm_api_key:
+        result = _call_glm(prompt, glm_api_key)
         if result is not None:
-            print("  -> نجح مع Groq")
+            print("  -> نجح مع GLM")
             return result
-        print("  -> Groq فشل كمان")
+        print("  -> GLM فشل، ننتقل لملاذ أخير")
+
+    print("  -> تجربة Gemini Flash-Lite (ملاذ أخير)...")
+    result = _call_gemini_model("gemini-3.5-flash-lite", prompt, gemini_api_key)
+    if result is not None:
+        print("  -> نجح مع Gemini Flash-Lite")
+        return result
 
     print("  -> فشلت كل النماذج المتاحة")
     return None
