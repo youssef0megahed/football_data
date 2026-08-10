@@ -70,8 +70,8 @@ def process_article(source_name, link, correction_examples):
     draft_raw = gemini.call_gemini(
         build_main_prompt(title, body, correction_examples),
         config.GEMINI_API_KEY,
-        config.GEMINI_MODELS,
-        config.GROQ_API_KEY,
+        config.GLM_API_KEY,
+    )
     )
     if not draft_raw:
         print("  فشلت المعالجة الأساسية، تخطي.")
@@ -87,8 +87,8 @@ def process_article(source_name, link, correction_examples):
     final_raw = gemini.call_gemini(
         build_final_review_prompt(body, draft_raw),
         config.GEMINI_API_KEY,
-        config.GEMINI_MODELS,
-        config.GROQ_API_KEY,
+        config.GLM_API_KEY,
+    )
     )
     if final_raw:
         r_title, r_body, image_prompt = parse_json_safe(final_raw, r_title, r_body, image_prompt)
