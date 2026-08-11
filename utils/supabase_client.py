@@ -24,7 +24,7 @@ def is_duplicate(supabase_url, supabase_key, source_url):
     return False
 
 
-def insert_article(supabase_url, supabase_key, source_url, title, body, image_url="", telegram_message_id=None):
+def insert_article(supabase_url, supabase_key, source_url, title, body, image_url="", telegram_message_id=None, club_tag=None):
     url = f"{supabase_url}/rest/v1/articles"
     payload = {
         "source_url": source_url, "title": title, "body": body,
@@ -32,6 +32,8 @@ def insert_article(supabase_url, supabase_key, source_url, title, body, image_ur
     }
     if telegram_message_id is not None:
         payload["telegram_message_id"] = telegram_message_id
+    if club_tag:
+        payload["club_tag"] = club_tag
 
     resp = requests.post(
         url, headers={**_headers(supabase_key), "Prefer": "return=representation"},
