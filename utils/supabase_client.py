@@ -132,3 +132,18 @@ def get_articles_by_club(supabase_url, supabase_key, club_tag, days=7, limit=10)
         }, timeout=20,
     )
     return resp.json() if resp.status_code == 200 else []
+
+def insert_raw_article(supabase_url, supabase_key, source_url, source_name, raw_title, raw_body):
+    url = f"{supabase_url}/rest/v1/raw_articles"
+    resp = requests.post(
+        url, headers={**_headers(supabase_key), "Prefer": "return=representation"},
+        json={
+            "source_url": source_url, "source_name": source_name,
+            "raw_title": raw_title, "raw_body": raw_body,
+        }, timeout=20,
+    )
+    if resp.status_code in (200, 201):
+        rows = resp.json()
+        return rows[0] if rows else None
+    print(f"  خطأ في حفظ الخبر الخام: {resp.status_code} {resp.text[:300]}")
+    return None
