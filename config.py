@@ -50,3 +50,33 @@ SEASON = 2026
 
 # FPL Official API (مجاني، بدون مفتاح، مقصور على الدوري الإنجليزي)
 FPL_BASE = "https://fantasy.premierleague.com/api"
+
+# الدوريات والبطولات المتابعة
+LEAGUE_IDS = {
+    "الدوري الإنجليزي": 39,
+    "الليجا الإسبانية": 140,
+    "الدوري الإيطالي": 135,
+    "البوندسليجا": 78,
+    "الليج 1 الفرنسي": 61,
+    "دوري أبطال أوروبا": 2,
+}
+
+# الأندية المتابعة: (الاسم العربي للبحث في الأخبار، الاسم الرسمي في api-football)
+TRACKED_CLUBS = [
+    ("مانشستر سيتي", "Manchester City"),
+    ("أرسنال", "Arsenal"),
+    ("تشيلسي", "Chelsea"),
+    ("ليفربول", "Liverpool"),
+    ("أستون فيلا", "Aston Villa"),
+    ("مانشستر يونايتد", "Manchester United"),
+    ("برشلونة", "Barcelona"),
+    ("ريال مدريد", "Real Madrid"),
+    ("أتلتيكو مدريد", "Atletico Madrid"),
+    ("بايرن ميونخ", "Bayern Munich"),
+    ("بوروسيا دورتموند", "Borussia Dortmund"),
+    ("باريس سان جيرمان", "Paris Saint Germain"),
+    ("إيه سي ميلان", "AC Milan"),
+    ("يوفنتوس", "Juventus"),
+    ("نابولي", "Napoli"),
+    ("إنتر ميلان", "Inter"),
+]
