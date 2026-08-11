@@ -116,3 +116,19 @@ def get_recent_corrections(supabase_url, supabase_key, limit=4):
         timeout=20,
     )
     return resp.json() if resp.status_code == 200 else []
+
+def get_articles_by_club(supabase_url, supabase_key, club_tag, days=7, limit=10):
+    import datetime
+    since = (datetime.datetime.utcnow() - datetime.timedelta(days=days)).isoformat()
+    url = f"{supabase_url}/rest/v1/articles"
+    resp = requests.get(
+        url, headers=_headers(supabase_key),
+        params={
+            "select": "title,body,created_at",
+            "club_tag": f"eq.{club_tag}",
+            "created_at": f"gte.{since}",
+            "order": "created_at.desc",
+            "limit": limit,
+        }, timeout=20,
+    )
+    return resp.json() if resp.status_code == 200 else []
