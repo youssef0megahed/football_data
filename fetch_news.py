@@ -99,9 +99,13 @@ def process_article(source_name, link, correction_examples):
     image_url = image_gen.generate_image_url(image_prompt)
     caption = f"{r_title}\n\n{r_body}"
 
+    club_tag = detect_club(title, body)
+
     row = supabase_client.insert_article(
         config.SUPABASE_URL, config.SUPABASE_KEY,
         source_url=link, title=r_title, body=r_body, image_url=image_url,
+        club_tag=club_tag,
+    )
     )
     if not row:
         print("  فشل حفظ الخبر في Supabase، تخطي الإرسال.")
@@ -143,6 +147,13 @@ def main():
             print(f"\nوصلنا للحد الأقصى ({config.MAX_ARTICLES_PER_RUN}) لهذه التشغيلة. توقف.")
             break
         try:
+            def detect_club(original_title, original_body):
+    """يحدد النادي بمطابقة الاسم الإنجليزي في النص الأصلي (أدق من البحث في الترجمة)"""
+    combined = (original_title + " " + original_body).lower()
+    for arabic_name, english_name in config.TRACKED_CLUBS:
+        if english_name.lower() in combined:
+            return arabic_name
+    return None
             if process_article(source_name, link, correction_examples):
                 processed_count += 1
         except Exception as e:
