@@ -106,7 +106,7 @@ def process_article(source_name, link, correction_examples):
         source_url=link, title=r_title, body=r_body, image_url=image_url,
         club_tag=club_tag,
     )
-    )
+    
     if not row:
         print("  فشل حفظ الخبر في Supabase، تخطي الإرسال.")
         return False
