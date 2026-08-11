@@ -1,6 +1,6 @@
 """
 السكريبت الرئيسي لبوت الأخبار.
-طلبين Gemini بس لكل خبر، مع Groq كشبكة أمان لو Gemini فشل بالكامل.
+طلبين Gemini بس لكل خبر، مع GLM كشبكة أمان، وتصنيف كل خبر حسب النادي عند الحفظ.
 """
 import config
 from utils import rss_sources, extractor, gemini, supabase_client, telegram, image_gen
@@ -20,7 +20,7 @@ def build_main_prompt(title, body, correction_examples):
 1. ترجم الخبر من الإنجليزية للعربية الفصحى الصحفية بدقة، محافظاً على كل الحقائق والأرقام والأسماء.
 2. أعد صياغته كمنشور سوشيال ميديا مختصر: عنوان جذاب (سطر واحد يبدأ بإيموجي ⚽)، وفقرتين قصار (2-3 جمل لكل فقرة) تلخصان الخبر. الحد الأقصى الإجمالي 600 حرف.
 3. تأكد إن الصياغة مش قريبة جداً من الأصل (بأسلوبك الخاص، مش نسخ).
-4. اكتب وصف تصويري بالإنجليزية لصورة تعبيرية عامة عن الخبر (ملعب، كرة، أضواء استاد، بدون وجوه حقيقية أو شعارات أو نصوص).
+4. اكتب وصف تصويري بالإنجليزية لصورة، بشرط صارم: بدون أي بشر أو أجزاء من جسم إنسان خالص (لا وجوه، لا أيدي، لا أجساد، لا حتى ظلال بشرية من بعيد). ركّز فقط على: ملعب فاضي، كرة قدم، أضواء استاد، شبكة مرمى، عشب، لوحة نتيجة رقمية. الأسلوب: تصوير معماري/بيئي بحت، مناسب تماماً لكل الأعمار.
 {examples_block}
 رجّع الرد بصيغة JSON فقط بالشكل ده بالظبط، من غير أي شرح إضافي:
 {{"title": "العنوان مع الإيموجي", "body": "الفقرتين مع بعض", "image_prompt": "الوصف بالإنجليزية"}}
@@ -53,6 +53,15 @@ def parse_json_safe(text, fallback_title="", fallback_body="", fallback_image=""
         return fallback_title, fallback_body, fallback_image
 
 
+def detect_club(original_title, original_body):
+    """يحدد النادي بمطابقة الاسم الإنجليزي في النص الأصلي (أدق من البحث في الترجمة)"""
+    combined = (original_title + " " + original_body).lower()
+    for arabic_name, english_name in config.TRACKED_CLUBS:
+        if english_name.lower() in combined:
+            return arabic_name
+    return None
+
+
 def process_article(source_name, link, correction_examples):
     print(f"\n--- معالجة: {link} ---")
 
@@ -72,7 +81,6 @@ def process_article(source_name, link, correction_examples):
         config.GEMINI_API_KEY,
         config.GLM_API_KEY,
     )
-    
     if not draft_raw:
         print("  فشلت المعالجة الأساسية، تخطي.")
         return False
@@ -89,12 +97,13 @@ def process_article(source_name, link, correction_examples):
         config.GEMINI_API_KEY,
         config.GLM_API_KEY,
     )
-    
     if final_raw:
         r_title, r_body, image_prompt = parse_json_safe(final_raw, r_title, r_body, image_prompt)
 
     if not image_prompt:
-        image_prompt = "professional football stadium, cinematic lighting, no faces, no text"
+        image_prompt = "empty professional football stadium, cinematic lighting, no faces, no text"
+
+    image_prompt = f"{image_prompt}, no humans, no people, no body parts, empty scene, family-friendly, safe for work, G-rated, architectural photography style"
 
     image_url = image_gen.generate_image_url(image_prompt)
     caption = f"{r_title}\n\n{r_body}"
@@ -106,7 +115,6 @@ def process_article(source_name, link, correction_examples):
         source_url=link, title=r_title, body=r_body, image_url=image_url,
         club_tag=club_tag,
     )
-    
     if not row:
         print("  فشل حفظ الخبر في Supabase، تخطي الإرسال.")
         return False
@@ -124,17 +132,7 @@ def process_article(source_name, link, correction_examples):
 
     print(f"  تم النشر بنجاح: {r_title}")
     return True
-def detect_club(original_title, original_body):
-    """يحدد النادي بمطابقة الاسم الإنجليزي في النص الأصلي (أدق من البحث في الترجمة)"""
-    combined = (original_title + " " + original_body).lower()
-    for arabic_name, english_name in config.TRACKED_CLUBS:
-        if english_name.lower() in combined:
-            return arabic_name
-    return None
 
-
-def process_article(source_name, link, correction_examples):
-    ...
 
 def main():
     processed_count = 0
@@ -157,7 +155,6 @@ def main():
             print(f"\nوصلنا للحد الأقصى ({config.MAX_ARTICLES_PER_RUN}) لهذه التشغيلة. توقف.")
             break
         try:
-
             if process_article(source_name, link, correction_examples):
                 processed_count += 1
         except Exception as e:
