@@ -124,7 +124,17 @@ def process_article(source_name, link, correction_examples):
 
     print(f"  تم النشر بنجاح: {r_title}")
     return True
+def detect_club(original_title, original_body):
+    """يحدد النادي بمطابقة الاسم الإنجليزي في النص الأصلي (أدق من البحث في الترجمة)"""
+    combined = (original_title + " " + original_body).lower()
+    for arabic_name, english_name in config.TRACKED_CLUBS:
+        if english_name.lower() in combined:
+            return arabic_name
+    return None
 
+
+def process_article(source_name, link, correction_examples):
+    ...
 
 def main():
     processed_count = 0
@@ -147,13 +157,7 @@ def main():
             print(f"\nوصلنا للحد الأقصى ({config.MAX_ARTICLES_PER_RUN}) لهذه التشغيلة. توقف.")
             break
         try:
-            def detect_club(original_title, original_body):
-    """يحدد النادي بمطابقة الاسم الإنجليزي في النص الأصلي (أدق من البحث في الترجمة)"""
-    combined = (original_title + " " + original_body).lower()
-    for arabic_name, english_name in config.TRACKED_CLUBS:
-        if english_name.lower() in combined:
-            return arabic_name
-    return None
+
             if process_article(source_name, link, correction_examples):
                 processed_count += 1
         except Exception as e:
