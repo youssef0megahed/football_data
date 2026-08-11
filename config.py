@@ -21,7 +21,7 @@ GLM_API_KEY = os.environ.get("GLM_API_KEY", "")
 GEMINI_MODELS = ["gemini-3.1-pro","gemini-3.6-flash",]
 
 # أقصى عدد أخبار جديدة تتعالج في التشغيلة الواحدة
-MAX_ARTICLES_PER_RUN = 5
+MAX_ARTICLES_PER_RUN = 10
 
 # أقصى عدد أخبار تُجلب من كل مصدر قبل الفلترة
 LINKS_PER_SOURCE = 10
