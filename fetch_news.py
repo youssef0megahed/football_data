@@ -140,6 +140,11 @@ def process_article(source_name, link, correction_examples):
     article_id = row["id"]
 
     msg_id = telegram.send_photo(config.TELEGRAM_BOT_TOKEN, config.TELEGRAM_CHAT_ID, image_url, caption)
+
+    if not msg_id:
+        print("  فشل إرسال الصورة، بنبعت النص بس بدلها")
+        msg_id = telegram.send_message(config.TELEGRAM_BOT_TOKEN, config.TELEGRAM_CHAT_ID, caption)
+
     telegram.send_message(config.TELEGRAM_BOT_TOKEN, config.TELEGRAM_CHAT_ID, f"المصدر: {link}")
     telegram.send_publish_buttons(config.TELEGRAM_BOT_TOKEN, config.TELEGRAM_CHAT_ID, article_id)
 
