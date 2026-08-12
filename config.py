@@ -21,10 +21,10 @@ GLM_API_KEY = os.environ.get("GLM_API_KEY", "")
 GEMINI_MODELS = ["gemini-3.6-flash","gemini-3.1-flash-lite",]
 
 # أقصى عدد أخبار جديدة تتعالج في التشغيلة الواحدة
-MAX_ARTICLES_PER_RUN = 5
+MAX_ARTICLES_PER_RUN = 3
 
 # أقصى عدد أخبار تُجلب من كل مصدر قبل الفلترة
-LINKS_PER_SOURCE = 5
+LINKS_PER_SOURCE = 3
 
 # أقصى عدد أمثلة من أرشيف التصحيحات تتحط في الـ prompt (Few-Shot)
 MAX_CORRECTION_EXAMPLES = 5
