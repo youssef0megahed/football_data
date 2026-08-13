@@ -66,8 +66,7 @@ def handle_edit_reply(message):
         )
         # تسجيل التصحيح في الأرشيف عشان النظام يتعلم منه في المرات الجاية
         original_draft = article.get("ai_draft_text") or f"{article['title']}\n\n{article['body']}"
-        supabase_client.add_correction(config.SUPABASE_URL, config.SUPABASE_KEY, original_draft, new_text)
-
+        supabase_client.add_correction(config.SUPABASE_URL, config.SUPABASE_KEY, original_draft, new_text, article_id=article["id"])
         telegram.send_message(config.TELEGRAM_BOT_TOKEN, chat_id, "✅ تم نشر النص المعدّل، وحفظنا التصحيح عشان نتعلم منه")
     else:
         telegram.send_message(config.TELEGRAM_BOT_TOKEN, chat_id, "❌ فشل النشر، جرب تاني")
