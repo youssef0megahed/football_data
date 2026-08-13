@@ -99,16 +99,16 @@ def set_bot_state(supabase_url, supabase_key, key, value):
 
 # ---------- أرشيف التصحيحات (Few-Shot Learning) ----------
 
-def add_correction(supabase_url, supabase_key, original_ai_text, corrected_text):
-    """بيتسجل كل مرة تستخدم زرار التعديل"""
+def add_correction(supabase_url, supabase_key, original_ai_text, corrected_text, article_id=None):
     url = f"{supabase_url}/rest/v1/correction_log"
+    payload = {"original_ai_text": original_ai_text, "corrected_text": corrected_text}
+    if article_id:
+        payload["article_id"] = article_id
     resp = requests.post(
         url, headers=_headers(supabase_key),
-        json={"original_ai_text": original_ai_text, "corrected_text": corrected_text},
-        timeout=20,
+        json=payload, timeout=20,
     )
     return resp.status_code in (200, 201)
-
 
 def get_recent_corrections(supabase_url, supabase_key, limit=4):
     """بيجيب آخر أمثلة تصحيح عشان تتحط في الـ prompt كـ Few-Shot"""
