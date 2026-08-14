@@ -59,18 +59,25 @@ def handle_edit_reply(message):
     new_text = message.get("text", "")
     chat_id = message["chat"]["id"]
 
+    # حفظ التصحيح دايماً، بغض النظر عن نجاح النشر على فيسبوك من عدمه
+    original_draft = article.get("ai_draft_text") or f"{article['title']}\n\n{article['body']}"
+    saved = supabase_client.add_correction(
+        config.SUPABASE_URL, config.SUPABASE_KEY, original_draft, new_text, article_id=article["id"]
+    )
+    if saved:
+        print(f"  تم حفظ التصحيح للخبر {article['id']}")
+    else:
+        print(f"  تحذير: فشل حفظ التصحيح للخبر {article['id']}")
+
+    # محاولة النشر على فيسبوك (منفصلة تماماً عن حفظ التصحيح)
     success = publish_to_facebook(article["image_url"], new_text)
     if success:
         supabase_client.update_article(
             config.SUPABASE_URL, config.SUPABASE_KEY, article["id"], {"published_to_fb": True}
         )
-        # تسجيل التصحيح في الأرشيف عشان النظام يتعلم منه في المرات الجاية
-        original_draft = article.get("ai_draft_text") or f"{article['title']}\n\n{article['body']}"
-        supabase_client.add_correction(config.SUPABASE_URL, config.SUPABASE_KEY, original_draft, new_text, article_id=article["id"])
-        telegram.send_message(config.TELEGRAM_BOT_TOKEN, chat_id, "✅ تم نشر النص المعدّل، وحفظنا التصحيح عشان نتعلم منه")
+        telegram.send_message(config.TELEGRAM_BOT_TOKEN, chat_id, "✅ تم حفظ التصحيح، وتم النشر على فيسبوك بنجاح")
     else:
-        telegram.send_message(config.TELEGRAM_BOT_TOKEN, chat_id, "❌ فشل النشر، جرب تاني")
-
+        telegram.send_message(config.TELEGRAM_BOT_TOKEN, chat_id, "✅ تم حفظ التصحيح للتعلّم منه\n⚠️ لكن النشر على فيسبوك فشل (فيسبوك لسه مش متفعّل)")
 
 def main():
     last_update_id = supabase_client.get_bot_state(config.SUPABASE_URL, config.SUPABASE_KEY, "last_update_id")
