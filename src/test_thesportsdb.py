@@ -12,94 +12,80 @@ EVENTS = {
 }
 
 
-def get_timeline(event_id):
-    response = requests.get(
-        f"{BASE_URL}/lookuptimeline.php",
-        params={"id": event_id},
-        timeout=30,
-    )
-
-    response.raise_for_status()
-
-    return response.json()
-
-
 def main():
-
-    print("=" * 70)
-    print("TheSportsDB MATCH EVENTS COVERAGE TEST")
-    print("=" * 70)
-
-    results = []
 
     for name, event_id in EVENTS.items():
 
-        print(f"\n{'-' * 70}")
+        print("\n" + "=" * 60)
         print(name)
         print("Event ID:", event_id)
 
-        try:
-            data = get_timeline(event_id)
+        response = requests.get(
+            f"{BASE_URL}/lookuptimeline.php",
+            params={"id": event_id},
+            timeout=30,
+        )
 
-            timeline = data.get("timeline") or []
+        response.raise_for_status()
 
-            print("Timeline events:", len(timeline))
+        data = response.json()
 
-            event_types = {}
+        timeline = data.get("timeline") or []
 
-            for event in timeline:
-                event_type = event.get("strTimeline", "UNKNOWN")
-                detail = event.get("strTimelineDetail", "")
+        print("عدد الأحداث:", len(timeline))
 
-                key = f"{event_type} / {detail}"
-
-                event_types[key] = (
-                    event_types.get(key, 0) + 1
-                )
-
+        for event in timeline:
             print(
-                json.dumps(
-                    event_types,
-                    indent=2,
-                    ensure_ascii=False,
-                )
+                event.get("intTime"),
+                "|",
+                event.get("strTimeline"),
+                "|",
+                event.get("strTimelineDetail"),
+                "|",
+                event.get("strPlayer"),
             )
 
-            results.append(
-                {
-                    "match": name,
-                    "event_id": event_id,
-                    "status": "OK",
-                    "events": len(timeline),
-                    "types": event_types,
-                }
-            )
 
-        except Exception as exc:
+if __name__ == "__main__":
+    main()import json
+import requests
 
-            print("ERROR:", exc)
+BASE_URL = "https://www.thesportsdb.com/api/v1/json/123"
+EVENT_ID = "2506178"
 
-            results.append(
-                {
-                    "match": name,
-                    "event_id": event_id,
-                    "status": "ERROR",
-                    "error": str(exc),
-                }
-            )
 
-    print("\n")
-    print("=" * 70)
-    print("FINAL SUMMARY")
-    print("=" * 70)
+def get(endpoint):
+    response = requests.get(
+        f"{BASE_URL}/{endpoint}",
+        params={"id": EVENT_ID},
+        timeout=30,
+    )
+
+    print(f"\n{'=' * 70}")
+    print(endpoint)
+    print(f"{'=' * 70}")
+    print("STATUS:", response.status_code)
+
+    response.raise_for_status()
+
+    data = response.json()
 
     print(
         json.dumps(
-            results,
+            data,
             indent=2,
             ensure_ascii=False,
         )
     )
+
+    return data
+
+
+def main():
+    get("lookupevent.php")
+    get("lookuptimeline.php")
+    get("lookuplineup.php")
+    get("lookupeventstats.php")
 
 
 if __name__ == "__main__":
