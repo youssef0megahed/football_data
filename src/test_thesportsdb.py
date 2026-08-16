@@ -43,6 +43,18 @@ def main():
 
         details = data.get("header", {}).get("competitions", [{}])[0].get("details", [])
 
+print("TOTAL EVENTS:", len(details))
+
+for i, event in enumerate(details, 1):
+
+    print(f"\nEVENT {i}")
+    print("TIME:", event.get("clock", {}).get("displayValue"))
+    print("TYPE:", event.get("type", {}).get("text"))
+    print("TEAM:", event.get("team", {}).get("id"))
+
+    for player in event.get("athletesInvolved", []):
+        print("PLAYER:", player.get("displayName"))
+
         print("TOTAL EVENTS:", len(details))
 
         for i, event in enumerate(details, 1):
