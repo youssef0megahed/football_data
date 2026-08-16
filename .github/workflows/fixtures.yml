@@ -4,7 +4,6 @@ on:
   workflow_dispatch:
 
   schedule:
-    # Every hour
     - cron: "0 * * * *"
 
 
@@ -17,7 +16,7 @@ jobs:
     steps:
 
       # =====================================================
-      # 1. Checkout repository
+      # Checkout
       # =====================================================
 
       - name: Checkout repository
@@ -25,7 +24,7 @@ jobs:
 
 
       # =====================================================
-      # 2. Setup Python
+      # Python
       # =====================================================
 
       - name: Setup Python
@@ -35,7 +34,7 @@ jobs:
 
 
       # =====================================================
-      # 3. Install dependencies
+      # Dependencies
       # =====================================================
 
       - name: Install dependencies
@@ -45,7 +44,7 @@ jobs:
 
 
       # =====================================================
-      # 4. Run Football Data Pipeline
+      # Football Data
       # =====================================================
 
       - name: Run Football Data Pipeline
@@ -57,11 +56,13 @@ jobs:
 
 
       # =====================================================
-      # 5. Test Telegram
+      # News Engine
       # =====================================================
 
-      - name: Test Telegram
-        run: python src/telegram_test.py
+      - name: Run News Engine
+        run: python src/news.py
         env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
