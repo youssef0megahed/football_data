@@ -1,47 +1,101 @@
+import json
 import requests
 
 
-BASE_URL = "https://www.thesportsdb.com/api/v1/json/123"
+BASE_URL = "https://site.api.espn.com/apis/site/v2/sports/soccer"
 
-EVENT_ID = "2506178"
+# La Liga
+LEAGUE = "esp.1"
 
-
-def get_events():
-
-    response = requests.get(
-        f"{BASE_URL}/lookuptimeline.php",
-        params={"id": EVENT_ID},
-        timeout=30,
-    )
-
-    response.raise_for_status()
-
-    return response.json().get("timeline") or []
+# Racing de Santander vs Villarreal
+DATE = "20260816"
 
 
 def main():
 
-    for request_number in range(1, 4):
+    url = f"{BASE_URL}/{LEAGUE}/scoreboard"
 
-        print("\n" + "=" * 60)
-        print("الطلب رقم:", request_number)
+    response = requests.get(
+        url,
+        params={"dates": DATE},
+        timeout=30,
+    )
 
-        events = get_events()
+    print("STATUS:", response.status_code)
 
-        print("عدد الأحداث:", len(events))
+    response.raise_for_status()
 
-        for event in events:
-            print(
-                event.get("idTimeline"),
-                "|",
-                event.get("intTime"),
-                "|",
-                event.get("strTimeline"),
-                "|",
-                event.get("strTimelineDetail"),
-                "|",
-                event.get("strPlayer"),
+    data = response.json()
+
+    events = data.get("events", [])
+
+    print("TOTAL MATCHES:", len(events))
+
+    for event in events:
+
+        competition = event.get("competitions", [{}])[0]
+
+        competitors = competition.get(
+            "competitors",
+            []
+        )
+
+        teams = [
+            c.get("team", {}).get("displayName", "")
+            for c in competitors
+        ]
+
+        if not any("Racing" in team for team in teams):
+            continue
+
+        print("\n" + "=" * 70)
+        print("MATCH")
+        print("=" * 70)
+
+        print(
+            json.dumps(
+                event,
+                indent=2,
+                ensure_ascii=False,
             )
+        )
+
+        event_id = event.get("id")
+
+        print("\nESPN EVENT ID:", event_id)
+
+        # Get detailed event data
+        summary_url = (
+            "https://site.api.espn.com/apis/site/v2/"
+            f"sports/soccer/{LEAGUE}/summary"
+        )
+
+        summary_response = requests.get(
+            summary_url,
+            params={"event": event_id},
+            timeout=30,
+        )
+
+        print(
+            "\nSUMMARY STATUS:",
+            summary_response.status_code
+        )
+
+        summary_response.raise_for_status()
+
+        summary = summary_response.json()
+
+        print("\n" + "=" * 70)
+        print("SUMMARY / EVENTS")
+        print("=" * 70)
+
+        print(
+            json.dumps(
+                summary,
+                indent=2,
+                ensure_ascii=False,
+            )
+        )
 
 
 if __name__ == "__main__":
