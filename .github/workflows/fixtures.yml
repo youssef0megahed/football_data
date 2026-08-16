@@ -48,7 +48,7 @@ jobs:
       # =====================================================
 
       - name: سحب مواعيد واحداث المباريات 
-        run: python test_match_events.py
+        run: python src/fixtures.py
         env:
           FOOTBALL_DATA_TOKEN: ${{ secrets.FOOTBALL_DATA_TOKEN }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
