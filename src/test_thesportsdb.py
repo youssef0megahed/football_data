@@ -1,82 +1,78 @@
 import requests
 
-
 BASE_URL = "https://site.api.espn.com/apis/site/v2/sports/soccer"
 LEAGUE = "esp.1"
 DATE = "20260816"
 
 
 def main():
-
-    scoreboard = requests.get(
+    response = requests.get(
         f"{BASE_URL}/{LEAGUE}/scoreboard",
         params={"dates": DATE},
         timeout=30,
     )
+    response.raise_for_status()
 
-    scoreboard.raise_for_status()
+    matches = response.json().get("events", [])
 
-    events = scoreboard.json().get("events", [])
+    for match in matches:
 
-    for match in events:
-
-        name = match.get("name", "")
-
-        if "Racing" not in name:
+        if "Racing" not in match.get("name", ""):
             continue
 
         event_id = match["id"]
 
-        print("\n" + "=" * 60)
-        print("MATCH:", name)
+        print("=" * 60)
+        print("MATCH:", match["name"])
         print("ESPN ID:", event_id)
 
-        summary = requests.get(
+        response = requests.get(
             f"{BASE_URL}/{LEAGUE}/summary",
             params={"event": event_id},
             timeout=30,
         )
+        response.raise_for_status()
 
-        summary.raise_for_status()
+        data = response.json()
 
-        data = summary.json()
+        competition = (
+            data.get("header", {})
+            .get("competitions", [{}])[0]
+        )
 
-        details = data.get("header", {}).get("competitions", [{}])[0].get("details", [])
-
-print("TOTAL EVENTS:", len(details))
-
-for i, event in enumerate(details, 1):
-
-    print(f"\nEVENT {i}")
-    print("TIME:", event.get("clock", {}).get("displayValue"))
-    print("TYPE:", event.get("type", {}).get("text"))
-    print("TEAM:", event.get("team", {}).get("id"))
-
-    for player in event.get("athletesInvolved", []):
-        print("PLAYER:", player.get("displayName"))
+        details = competition.get("details", [])
 
         print("TOTAL EVENTS:", len(details))
 
-        for i, event in enumerate(details, 1):
+        for number, event in enumerate(details, 1):
 
-            clock = event.get("clock", {})
-            event_type = event.get("type", {})
-
-            athletes = event.get(
-                "athletesInvolved",
-                []
+            time = event.get("clock", {}).get(
+                "displayValue", ""
             )
 
-            players = ", ".join(
-                a.get("displayName", "")
-                for a in athletes
-            )
+            event_type = event.get(
+                "type", {}
+            ).get("text", "")
+
+            team_id = event.get(
+                "team", {}
+            ).get("id", "")
+
+            players = []
+
+            for player in event.get(
+                "athletesInvolved", []
+            ):
+                players.append(
+                    player.get("displayName", "")
+                )
 
             print(
-                f"{i}. "
-                f"{clock.get('displayValue', '')} | "
-                f"{event_type.get('text', '')} | "
-                f"{players}"
+                f"{number}. "
+                f"{time} | "
+                f"{event_type} | "
+                f"Team: {team_id} | "
+                f"Players: {', '.join(players)}"
             )
 
 
