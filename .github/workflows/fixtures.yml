@@ -74,3 +74,10 @@ jobs:
           THE_NEWS_API_KEY: ${{ secrets.THE_NEWS_API_KEY }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+
+
+
+      - name: Test News API
+        run: python src/test_news_api.py
+        env:
+           THE_NEWS_API_KEY: ${{ secrets.THE_NEWS_API_KEY }}
