@@ -1,7 +1,6 @@
 import json
 import requests
 
-
 BASE_URL = "https://www.thesportsdb.com/api/v1/json/123"
 
 
@@ -19,111 +18,43 @@ def get(endpoint, params):
 
     data = response.json()
 
-    print(
-        json.dumps(
-            data,
-            indent=2,
-            ensure_ascii=False
-        )
-    )
+    print(json.dumps(data, indent=2, ensure_ascii=False))
 
     return data
 
 
 def main():
 
-    # ========================================================
-    # SEARCH MATCH
-    # ========================================================
-
-    search = get(
-        "searchevents.php",
+    # Get La Liga 2026/27 events
+    data = get(
+        "eventsseason.php",
         {
-            "e": "Racing Santander vs Villarreal",
-            "d": "2026-08-16",
+            "id": "4335",
         },
     )
 
-    events = search.get("event") or []
+    events = data.get("events") or []
 
-    if not events:
-        raise RuntimeError(
-            "TheSportsDB returned no matching event."
-        )
+    print("\nTOTAL EVENTS:", len(events))
 
-    event_id = events[0].get(
-        "idEvent"
-    )
+    for event in events:
+        home = event.get("strHomeTeam", "")
+        away = event.get("strAwayTeam", "")
 
-    if not event_id:
-        raise RuntimeError(
-            "TheSportsDB event has no idEvent."
-        )
-
-    print(
-        "\nSELECTED EVENT ID:",
-        event_id
-    )
-
-
-    # ========================================================
-    # EVENT DETAILS
-    # ========================================================
-
-    get(
-        "lookupevent.php",
-        {
-            "id": event_id
-        }
-    )
-
-
-    # ========================================================
-    # TIMELINE / MATCH EVENTS
-    # ========================================================
-
-    get(
-        "lookuptimeline.php",
-        {
-            "id": event_id
-        }
-    )
-
-
-    # ========================================================
-    # LINEUP
-    # ========================================================
-
-    get(
-        "lookuplineup.php",
-        {
-            "id": event_id
-        }
-    )
-
-
-    # ========================================================
-    # STATISTICS
-    # ========================================================
-
-    get(
-        "lookupeventstats.php",
-        {
-            "id": event_id
-        }
-    )
-
-
-    # ========================================================
-    # EVENT RESULTS
-    # ========================================================
-
-    get(
-        "eventresults.php",
-        {
-            "id": event_id
-        }
-    )
+        if (
+            "Racing" in home
+            or "Racing" in away
+            or "Villarreal" in home
+            or "Villarreal" in away
+        ):
+            print("\nMATCH FOUND:")
+            print(
+                json.dumps(
+                    event,
+                    indent=2,
+                    ensure_ascii=False,
+                )
+            )
 
 
 if __name__ == "__main__":
