@@ -150,6 +150,65 @@ def get_competition_id(competition_code):
 
 
 # ============================================================
+# UPSERT TEAMS
+# ============================================================
+
+def upsert_teams(matches):
+
+    teams = {}
+
+    for match in matches:
+
+        home_team = match["homeTeam"]
+        away_team = match["awayTeam"]
+
+        for team in [home_team, away_team]:
+
+            team_id = str(team["id"])
+
+            teams[team_id] = {
+                "source": "football-data.org",
+
+                "source_team_id": team_id,
+
+                "name": team["name"],
+
+                "short_name": team.get("shortName"),
+
+                "tla": team.get("tla"),
+
+                "crest_url": team.get("crest")
+            }
+
+    if not teams:
+        return 0
+
+    url = f"{SUPABASE_URL}/rest/v1/teams"
+
+    params = {
+        "on_conflict": "source,source_team_id"
+    }
+
+    response = requests.post(
+        url,
+        headers=SUPABASE_HEADERS,
+        params=params,
+        json=list(teams.values()),
+        timeout=30
+    )
+
+    if response.status_code not in [200, 201]:
+
+        raise Exception(
+            f"Supabase teams upsert failed "
+            f"{response.status_code}: "
+            f"{response.text}"
+        )
+
+    return len(teams)
+
+
+# ============================================================
 # PREPARE MATCH
 # ============================================================
 
