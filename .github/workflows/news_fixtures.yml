@@ -46,7 +46,7 @@ jobs:
       # News Engine
       # =====================================================
 
-      - name: Run News Engine
+      - name: نشر مواعيد واحداث المباريات 
         run: python src/news_fixtures.py
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
