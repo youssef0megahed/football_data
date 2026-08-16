@@ -47,22 +47,9 @@ jobs:
       # Football Data
       # =====================================================
 
-      - name: Run Football Data Pipeline
+      - name: سحب مواعيد واحداث المباريات 
         run: python src/fixtures.py
         env:
           FOOTBALL_DATA_TOKEN: ${{ secrets.FOOTBALL_DATA_TOKEN }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
-
-
-      # =====================================================
-      # News Engine
-      # =====================================================
-
-      - name: Run News Engine
-        run: python src/news_fixtures.py
-        env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
