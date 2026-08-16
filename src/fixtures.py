@@ -9,37 +9,60 @@ from zoneinfo import ZoneInfo
 # CONFIGURATION
 # ============================================================
 
-TOKEN = os.getenv("FOOTBALL_DATA_TOKEN")
+FOOTBALL_DATA_TOKEN = os.getenv("FOOTBALL_DATA_TOKEN")
 
-BASE_URL = "https://api.football-data.org/v4/competitions"
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
 TIMEZONE = ZoneInfo("Africa/Cairo")
 
-COMPETITIONS = {
-    "Premier League": "PL",
-    "La Liga": "PD",
-    "Serie A": "SA",
-    "Bundesliga": "BL1",
-    "Ligue 1": "FL1",
-}
+BASE_URL = "https://api.football-data.org/v4/competitions"
 
-HEADERS = {
-    "X-Auth-Token": TOKEN
+COMPETITIONS = {
+    "Premier League": {
+        "code": "PL",
+        "country": "England"
+    },
+    "La Liga": {
+        "code": "PD",
+        "country": "Spain"
+    },
+    "Serie A": {
+        "code": "SA",
+        "country": "Italy"
+    },
+    "Bundesliga": {
+        "code": "BL1",
+        "country": "Germany"
+    },
+    "Ligue 1": {
+        "code": "FL1",
+        "country": "France"
+    },
 }
 
 
 # ============================================================
-# GET CURRENT SEASON
+# HEADERS
+# ============================================================
+
+FOOTBALL_HEADERS = {
+    "X-Auth-Token": FOOTBALL_DATA_TOKEN
+}
+
+SUPABASE_HEADERS = {
+    "apikey": SUPABASE_KEY,
+    "Authorization": f"Bearer {SUPABASE_KEY}",
+    "Content-Type": "application/json",
+    "Prefer": "resolution=merge-duplicates"
+}
+
+
+# ============================================================
+# CURRENT SEASON
 # ============================================================
 
 def get_current_season():
-    """
-    Determines the football season based on Cairo date.
-
-    Example:
-    August 2026 -> season 2026
-    January 2027 -> season 2026
-    """
 
     now = datetime.now(TIMEZONE)
 
@@ -50,7 +73,7 @@ def get_current_season():
 
 
 # ============================================================
-# GET SEASON MATCHES
+# GET COMPETITION MATCHES
 # ============================================================
 
 def get_competition_matches(competition_code, season):
@@ -63,15 +86,15 @@ def get_competition_matches(competition_code, season):
 
     response = requests.get(
         url,
-        headers=HEADERS,
+        headers=FOOTBALL_HEADERS,
         params=params,
         timeout=30
     )
 
     if response.status_code != 200:
         raise Exception(
-            f"API request failed: "
-            f"{response.status_code} - {response.text}"
+            f"Football API error "
+            f"{response.status_code}: {response.text}"
         )
 
     data = response.json()
@@ -93,45 +116,124 @@ def convert_to_cairo(utc_date):
 
 
 # ============================================================
-# PRINT MATCH
+# GET COMPETITION ID FROM SUPABASE
 # ============================================================
 
-def print_match(match):
+def get_competition_id(competition_code):
 
-    match_id = match["id"]
+    url = f"{SUPABASE_URL}/rest/v1/competitions"
 
-    home_team = match["homeTeam"]["name"]
-    away_team = match["awayTeam"]["name"]
+    params = {
+        "code": f"eq.{competition_code}",
+        "source": "eq.football-data.org",
+        "select": "id"
+    }
 
-    utc_date = match["utcDate"]
+    response = requests.get(
+        url,
+        headers=SUPABASE_HEADERS,
+        params=params,
+        timeout=30
+    )
 
-    cairo_datetime = convert_to_cairo(utc_date)
+    if response.status_code != 200:
+        raise Exception(
+            f"Supabase competition lookup failed "
+            f"{response.status_code}: {response.text}"
+        )
 
-    date = cairo_datetime.strftime("%Y-%m-%d")
-    time = cairo_datetime.strftime("%H:%M")
+    data = response.json()
 
-    status = match["status"]
+    if not data:
+        raise Exception(
+            f"Competition {competition_code} "
+            f"does not exist in Supabase."
+        )
+
+    return data[0]["id"]
+
+
+# ============================================================
+# CONVERT MATCH TO DATABASE RECORD
+# ============================================================
+
+def prepare_match(match, competition_id, competition_name, season):
+
+    kickoff_utc = match["utcDate"]
+
+    cairo_datetime = convert_to_cairo(kickoff_utc)
 
     score = match.get("score", {})
-
     full_time = score.get("fullTime", {})
 
     home_score = full_time.get("home")
     away_score = full_time.get("away")
 
-    print(f"    Match ID : {match_id}")
-    print(f"    Time     : {time}")
-    print(f"    Home     : {home_team}")
-    print(f"    Away     : {away_team}")
-    print(f"    Status   : {status}")
+    home_team = match["homeTeam"]
+    away_team = match["awayTeam"]
 
-    if home_score is not None and away_score is not None:
-        print(f"    Score    : {home_score} - {away_score}")
+    return {
+        "source": "football-data.org",
 
-    print(f"    UTC      : {utc_date}")
-    print(f"    Cairo    : {date} {time}")
+        "source_match_id": match["id"],
 
-    print("")
+        "competition_id": competition_id,
+
+        "competition_name": competition_name,
+
+        "season": season,
+
+        "kickoff_utc": kickoff_utc,
+
+        "kickoff_local": cairo_datetime.isoformat(),
+
+        "timezone": "Africa/Cairo",
+
+        "home_team_id": str(home_team["id"]),
+
+        "home_team_name": home_team["name"],
+
+        "away_team_id": str(away_team["id"]),
+
+        "away_team_name": away_team["name"],
+
+        "status": match["status"],
+
+        "home_score": home_score,
+
+        "away_score": away_score,
+
+        "venue": match.get("venue"),
+
+        "last_updated_at": match.get("lastUpdated"),
+    }
+
+
+# ============================================================
+# UPSERT MATCHES INTO SUPABASE
+# ============================================================
+
+def save_matches(matches):
+
+    if not matches:
+        return 0
+
+    url = f"{SUPABASE_URL}/rest/v1/matches"
+
+    response = requests.post(
+        url,
+        headers=SUPABASE_HEADERS,
+        json=matches,
+        timeout=30
+    )
+
+    if response.status_code not in [200, 201]:
+        raise Exception(
+            f"Supabase insert failed "
+            f"{response.status_code}: {response.text}"
+        )
+
+    return len(matches)
 
 
 # ============================================================
@@ -140,20 +242,31 @@ def print_match(match):
 
 def main():
 
-    if not TOKEN:
+    if not FOOTBALL_DATA_TOKEN:
         raise Exception(
             "FOOTBALL_DATA_TOKEN is missing."
+        )
+
+    if not SUPABASE_URL:
+        raise Exception(
+            "SUPABASE_URL is missing."
+        )
+
+    if not SUPABASE_KEY:
+        raise Exception(
+            "SUPABASE_KEY is missing."
         )
 
     now = datetime.now(TIMEZONE)
 
     today = now.date()
+
     tomorrow = today + timedelta(days=1)
 
     season = get_current_season()
 
     print("=" * 70)
-    print("FOOTBALL DATA COLLECTOR")
+    print("FOOTBALL DATA PIPELINE")
     print("=" * 70)
 
     print(f"Timezone : Africa/Cairo")
@@ -161,39 +274,59 @@ def main():
     print(f"Tomorrow : {tomorrow}")
     print(f"Season   : {season}")
 
-    print("")
-    print("=" * 70)
-
+    total_matches = 0
     total_today = 0
     total_tomorrow = 0
 
-    # --------------------------------------------------------
-    # LOOP THROUGH THE FIVE MAJOR LEAGUES
-    # --------------------------------------------------------
+    # ========================================================
+    # PROCESS FIVE LEAGUES
+    # ========================================================
 
-    for league_name, competition_code in COMPETITIONS.items():
+    for league_name, league_info in COMPETITIONS.items():
+
+        competition_code = league_info["code"]
 
         print("")
         print("=" * 70)
         print(f"🏆 {league_name}")
-        print(f"Competition Code: {competition_code}")
         print("=" * 70)
 
         try:
+
+            # ------------------------------------------------
+            # Get Supabase competition ID
+            # ------------------------------------------------
+
+            competition_id = get_competition_id(
+                competition_code
+            )
+
+            print(
+                f"Supabase Competition ID: "
+                f"{competition_id}"
+            )
+
+            # ------------------------------------------------
+            # Get season matches
+            # ------------------------------------------------
 
             matches = get_competition_matches(
                 competition_code,
                 season
             )
 
-            print(f"Season matches received: {len(matches)}")
-            print("")
+            print(
+                f"Season matches received: "
+                f"{len(matches)}"
+            )
 
-            today_matches = []
-            tomorrow_matches = []
+            database_records = []
+
+            today_count = 0
+            tomorrow_count = 0
 
             # ------------------------------------------------
-            # FILTER TODAY / TOMORROW
+            # Process matches
             # ------------------------------------------------
 
             for match in matches:
@@ -204,64 +337,66 @@ def main():
 
                 match_date = cairo_datetime.date()
 
+                # --------------------------------------------
+                # We currently collect only today/tomorrow
+                # --------------------------------------------
+
+                if match_date not in [today, tomorrow]:
+                    continue
+
+                record = prepare_match(
+                    match,
+                    competition_id,
+                    league_name,
+                    season
+                )
+
+                database_records.append(record)
+
                 if match_date == today:
-                    today_matches.append(match)
+                    today_count += 1
 
                 elif match_date == tomorrow:
-                    tomorrow_matches.append(match)
+                    tomorrow_count += 1
 
             # ------------------------------------------------
-            # TODAY
+            # Save to Supabase
             # ------------------------------------------------
 
-            print("-" * 70)
-            print(f"TODAY - {today}")
-            print("-" * 70)
+            saved = save_matches(
+                database_records
+            )
 
-            if today_matches:
+            total_matches += saved
 
-                for match in today_matches:
-                    print_match(match)
+            total_today += today_count
 
-            else:
+            total_tomorrow += tomorrow_count
 
-                print("    No matches")
-
-            # ------------------------------------------------
-            # TOMORROW
-            # ------------------------------------------------
-
-            print("-" * 70)
-            print(f"TOMORROW - {tomorrow}")
-            print("-" * 70)
-
-            if tomorrow_matches:
-
-                for match in tomorrow_matches:
-                    print_match(match)
-
-            else:
-
-                print("    No matches")
-
-            # ------------------------------------------------
-            # COUNTERS
-            # ------------------------------------------------
-
-            total_today += len(today_matches)
-            total_tomorrow += len(tomorrow_matches)
-
-            print("")
             print(
-                f"    Today: {len(today_matches)} | "
-                f"Tomorrow: {len(tomorrow_matches)}"
+                f"Today: {today_count}"
+            )
+
+            print(
+                f"Tomorrow: {tomorrow_count}"
+            )
+
+            print(
+                f"Saved to Supabase: {saved}"
             )
 
         except Exception as error:
 
             print("")
-            print(f"    ❌ ERROR: {error}")
-            print("    Continuing with next league...")
+            print(
+                f"❌ ERROR in {league_name}:"
+            )
+
+            print(error)
+
+            print(
+                "Continuing with next league..."
+            )
 
     # ========================================================
     # FINAL SUMMARY
@@ -272,23 +407,28 @@ def main():
     print("FINAL SUMMARY")
     print("=" * 70)
 
-    print(f"Today matches    : {total_today}")
-    print(f"Tomorrow matches : {total_tomorrow}")
     print(
-        f"Total matches    : "
-        f"{total_today + total_tomorrow}"
+        f"Today matches    : "
+        f"{total_today}"
+    )
+
+    print(
+        f"Tomorrow matches : "
+        f"{total_tomorrow}"
+    )
+
+    print(
+        f"Total saved      : "
+        f"{total_matches}"
     )
 
     print("")
-    print("API requests used: 5")
+    print("Football API requests: 5")
+
     print("Status: SUCCESS")
 
     print("=" * 70)
 
-
-# ============================================================
-# ENTRY POINT
-# ============================================================
 
 if __name__ == "__main__":
     main()
