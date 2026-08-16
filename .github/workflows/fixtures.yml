@@ -1,4 +1,4 @@
-name: Football Data Pipeline
+name: سحب مواعيد واحداث المباريات 
 
 on:
   workflow_dispatch:
