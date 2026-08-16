@@ -1,50 +1,67 @@
-name: Football Fixtures Collector
+name: Football Data Pipeline
 
 on:
-
-  # تشغيل يدوي
   workflow_dispatch:
 
-  # تشغيل تلقائي
   schedule:
-
-    # كل 3 ساعات
-    - cron: "0 */3 * * *"
+    # Every hour
+    - cron: "0 * * * *"
 
 
 jobs:
 
-  collect-fixtures:
+  football-pipeline:
 
     runs-on: ubuntu-latest
 
     steps:
 
+      # =====================================================
+      # 1. Checkout repository
+      # =====================================================
+
       - name: Checkout repository
         uses: actions/checkout@v4
+
+
+      # =====================================================
+      # 2. Setup Python
+      # =====================================================
 
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
+
+      # =====================================================
+      # 3. Install dependencies
+      # =====================================================
+
       - name: Install dependencies
         run: |
+          python -m pip install --upgrade pip
           pip install requests
 
-      - name: Collect and update fixtures
+
+      # =====================================================
+      # 4. Run Football Data Pipeline
+      # =====================================================
+
+      - name: Run Football Data Pipeline
+        run: python src/fixtures.py
         env:
           FOOTBALL_DATA_TOKEN: ${{ secrets.FOOTBALL_DATA_TOKEN }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
 
-        run: |
-          python src/fixtures.py
 
+      # =====================================================
+      # 5. Test Telegram
+      # =====================================================
 
-          
-         name: Test Telegram
-         run: python src/telegram_test.py
-         env:
-           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      - name: Test Telegram
+        run: python src/telegram_test.py
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
