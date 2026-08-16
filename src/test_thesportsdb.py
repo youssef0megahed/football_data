@@ -1,101 +1,71 @@
-import json
 import requests
 
 
 BASE_URL = "https://site.api.espn.com/apis/site/v2/sports/soccer"
-
-# La Liga
 LEAGUE = "esp.1"
-
-# Racing de Santander vs Villarreal
 DATE = "20260816"
 
 
 def main():
 
-    url = f"{BASE_URL}/{LEAGUE}/scoreboard"
-
-    response = requests.get(
-        url,
+    scoreboard = requests.get(
+        f"{BASE_URL}/{LEAGUE}/scoreboard",
         params={"dates": DATE},
         timeout=30,
     )
 
-    print("STATUS:", response.status_code)
+    scoreboard.raise_for_status()
 
-    response.raise_for_status()
+    events = scoreboard.json().get("events", [])
 
-    data = response.json()
+    for match in events:
 
-    events = data.get("events", [])
+        name = match.get("name", "")
 
-    print("TOTAL MATCHES:", len(events))
-
-    for event in events:
-
-        competition = event.get("competitions", [{}])[0]
-
-        competitors = competition.get(
-            "competitors",
-            []
-        )
-
-        teams = [
-            c.get("team", {}).get("displayName", "")
-            for c in competitors
-        ]
-
-        if not any("Racing" in team for team in teams):
+        if "Racing" not in name:
             continue
 
-        print("\n" + "=" * 70)
-        print("MATCH")
-        print("=" * 70)
+        event_id = match["id"]
 
-        print(
-            json.dumps(
-                event,
-                indent=2,
-                ensure_ascii=False,
-            )
-        )
+        print("\n" + "=" * 60)
+        print("MATCH:", name)
+        print("ESPN ID:", event_id)
 
-        event_id = event.get("id")
-
-        print("\nESPN EVENT ID:", event_id)
-
-        # Get detailed event data
-        summary_url = (
-            "https://site.api.espn.com/apis/site/v2/"
-            f"sports/soccer/{LEAGUE}/summary"
-        )
-
-        summary_response = requests.get(
-            summary_url,
+        summary = requests.get(
+            f"{BASE_URL}/{LEAGUE}/summary",
             params={"event": event_id},
             timeout=30,
         )
 
-        print(
-            "\nSUMMARY STATUS:",
-            summary_response.status_code
-        )
+        summary.raise_for_status()
 
-        summary_response.raise_for_status()
+        data = summary.json()
 
-        summary = summary_response.json()
+        details = data.get("plays", [])
 
-        print("\n" + "=" * 70)
-        print("SUMMARY / EVENTS")
-        print("=" * 70)
+        print("TOTAL EVENTS:", len(details))
 
-        print(
-            json.dumps(
-                summary,
-                indent=2,
-                ensure_ascii=False,
+        for i, event in enumerate(details, 1):
+
+            clock = event.get("clock", {})
+            event_type = event.get("type", {})
+
+            athletes = event.get(
+                "athletesInvolved",
+                []
             )
-        )
+
+            players = ", ".join(
+                a.get("displayName", "")
+                for a in athletes
+            )
+
+            print(
+                f"{i}. "
+                f"{clock.get('displayValue', '')} | "
+                f"{event_type.get('text', '')} | "
+                f"{players}"
+            )
 
 
 if __name__ == "__main__":
