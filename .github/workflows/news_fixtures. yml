@@ -1,0 +1,55 @@
+name: Football Data Pipeline
+
+on:
+  workflow_dispatch:
+
+  schedule:
+    - cron: "30 * * * *"
+
+
+jobs:
+
+  football-pipeline:
+
+    runs-on: ubuntu-latest
+
+    steps:
+
+      # =====================================================
+      # Checkout
+      # =====================================================
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+
+      # =====================================================
+      # Python
+      # =====================================================
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+
+      # =====================================================
+      # Dependencies
+      # =====================================================
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests
+
+      # =====================================================
+      # News Engine
+      # =====================================================
+
+      - name: Run News Engine
+        run: python src/news_fixtures.py
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
