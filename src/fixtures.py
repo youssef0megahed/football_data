@@ -125,8 +125,7 @@ def get_competition_id(competition_code):
 
     params = {
         "code": f"eq.{competition_code}",
-        "source": "eq.football-data.org",
-        "select": "id"
+        "select": "id,name,code,country,source"
     }
 
     response = requests.get(
@@ -135,6 +134,13 @@ def get_competition_id(competition_code):
         params=params,
         timeout=30
     )
+
+    print("")
+    print("SUPABASE DEBUG")
+    print("URL:", url)
+    print("Status:", response.status_code)
+    print("Response:", response.text)
+    print("")
 
     if response.status_code != 200:
         raise Exception(
@@ -151,7 +157,6 @@ def get_competition_id(competition_code):
         )
 
     return data[0]["id"]
-
 
 # ============================================================
 # CONVERT MATCH TO DATABASE RECORD
