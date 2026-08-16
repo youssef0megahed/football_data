@@ -2,59 +2,41 @@ import json
 import requests
 
 BASE_URL = "https://www.thesportsdb.com/api/v1/json/123"
+EVENT_ID = "2506178"
 
 
-def get(endpoint, params):
+def get(endpoint):
     response = requests.get(
         f"{BASE_URL}/{endpoint}",
-        params=params,
+        params={"id": EVENT_ID},
         timeout=30,
     )
 
-    print(f"\n=== {endpoint} ===")
+    print(f"\n{'=' * 70}")
+    print(endpoint)
+    print(f"{'=' * 70}")
     print("STATUS:", response.status_code)
 
     response.raise_for_status()
 
     data = response.json()
 
-    print(json.dumps(data, indent=2, ensure_ascii=False))
+    print(
+        json.dumps(
+            data,
+            indent=2,
+            ensure_ascii=False,
+        )
+    )
 
     return data
 
 
 def main():
-
-    # Get La Liga 2026/27 events
-    data = get(
-        "eventsseason.php",
-        {
-            "id": "4335",
-        },
-    )
-
-    events = data.get("events") or []
-
-    print("\nTOTAL EVENTS:", len(events))
-
-    for event in events:
-        home = event.get("strHomeTeam", "")
-        away = event.get("strAwayTeam", "")
-
-        if (
-            "Racing" in home
-            or "Racing" in away
-            or "Villarreal" in home
-            or "Villarreal" in away
-        ):
-            print("\nMATCH FOUND:")
-            print(
-                json.dumps(
-                    event,
-                    indent=2,
-                    ensure_ascii=False,
-                )
-            )
+    get("lookupevent.php")
+    get("lookuptimeline.php")
+    get("lookuplineup.php")
+    get("lookupeventstats.php")
 
 
 if __name__ == "__main__":
