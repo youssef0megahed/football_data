@@ -458,36 +458,31 @@ def build_match_message(
         match.get("kickoff_local")
     )
 
-    # ========================================================
-    # TITLE
-    # ========================================================
-
     day = get_match_day(
         match.get("kickoff_local")
     )
 
-    if status == "FINISHED":
+    # ========================================================
+    # TITLE
+    # ========================================================
 
+    if status == "FINISHED":
         title = "🔚 مباراة انتهت"
 
     elif status in ["IN_PLAY", "PAUSED"]:
-
         title = "🔴 مباراة جارية الآن"
 
     elif day == "today":
-
         title = "📅 مباراة اليوم"
 
     elif day == "tomorrow":
-
         title = "📅 مباراة الغد"
 
     else:
-
         title = "⚽ مباراة"
 
     # ========================================================
-    # FINISHED
+    # FINISHED MATCH
     # ========================================================
 
     if status == "FINISHED":
@@ -514,7 +509,7 @@ def build_match_message(
             )
 
     # ========================================================
-    # LIVE
+    # LIVE MATCH
     # ========================================================
 
     if status in ["IN_PLAY", "PAUSED"]:
@@ -543,7 +538,7 @@ def build_match_message(
             )
 
     # ========================================================
-    # UPCOMING
+    # UPCOMING MATCH
     # ========================================================
 
     return (
@@ -558,49 +553,7 @@ def build_match_message(
         f"⏰ {match_time} بتوقيت القاهرة\n"
         f"\n"
         f"#كرة_القدم #Football"
-            )
-
-    # --------------------------------------------------------
-    # LIVE
-    # --------------------------------------------------------
-
-    elif status in [
-        "IN_PLAY",
-        "PAUSED",
-    ]:
-
-        lines.extend([
-            "",
-        ])
-
-        if score:
-
-            home_score, away_score = score
-
-            lines.extend([
-                "",
-                f"📊 النتيجة الحالية: "
-                f"{home_score} - {away_score}",
-            ])
-
-    # --------------------------------------------------------
-    # NOT STARTED
-    # --------------------------------------------------------
-
-    else:
-
-        lines.extend([
-            "",
-            f"📌 الحالة: {status_ar}",
-        ])
-
-    lines.extend([
-        "",
-        "#كرة_القدم #Football",
-    ])
-
-    return "\n".join(lines)
-
+    )
 
 # ============================================================
 # TELEGRAM SEND
