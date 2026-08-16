@@ -41,7 +41,7 @@ def main():
 
         data = summary.json()
 
-        details = data.get("plays", [])
+        details = data.get("header", {}).get("competitions", [{}])[0].get("details", [])
 
         print("TOTAL EVENTS:", len(details))
 
