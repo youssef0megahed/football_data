@@ -19,7 +19,7 @@ TIMEZONE = ZoneInfo("Africa/Cairo")
 
 
 # ============================================================
-# HEADERS
+# SUPABASE HEADERS
 # ============================================================
 
 SUPABASE_HEADERS = {
@@ -30,7 +30,7 @@ SUPABASE_HEADERS = {
 
 
 # ============================================================
-# ENVIRONMENT
+# ENVIRONMENT CHECK
 # ============================================================
 
 def check_environment():
@@ -56,7 +56,7 @@ def check_environment():
 
 
 # ============================================================
-# CURRENT TIME
+# CURRENT DATE / TIME
 # ============================================================
 
 def get_dates():
@@ -82,6 +82,9 @@ def get_target_matches():
         today.year,
         today.month,
         today.day,
+        0,
+        0,
+        0,
         tzinfo=TIMEZONE
     )
 
@@ -106,13 +109,13 @@ def get_target_matches():
             f"(kickoff_local.lte.{tomorrow_end.isoformat()})",
 
         "select":
-            "id,competition_name,home_team_name,"
-            "away_team_name,home_score,away_score,"
+            "id,competition_name,"
+            "home_team_name,away_team_name,"
+            "home_score,away_score,"
             "status,kickoff_local,venue",
 
         "order":
             "kickoff_local.asc"
-
     }
 
     response = requests.get(
@@ -123,6 +126,7 @@ def get_target_matches():
     )
 
     if response.status_code != 200:
+
         raise Exception(
             "Failed to get matches: "
             f"{response.status_code}: "
@@ -133,12 +137,191 @@ def get_target_matches():
 
 
 # ============================================================
-# CHECK NEWS
+# GET NEWS STATE
 # ============================================================
 
-def news_exists(match_id, news_type):
+def get_news_state(match_id):
 
-    url = f"{SUPABASE_URL}/rest/v1/news"
+    url = (
+        f"{SUPABASE_URL}/rest/v1/"
+        f"match_news_state"
+    )
+
+    params = {
+
+        "match_id":
+            f"eq.{match_id}",
+
+        "select":
+            "id,match_id,last_status,"
+            "last_home_score,last_away_score,"
+            "initialized",
+
+        "limit":
+            "1"
+    }
+
+    response = requests.get(
+        url,
+        headers=SUPABASE_HEADERS,
+        params=params,
+        timeout=30
+    )
+
+    if response.status_code != 200:
+
+        raise Exception(
+            "Failed to get news state: "
+            f"{response.status_code}: "
+            f"{response.text}"
+        )
+
+    data = response.json()
+
+    if not data:
+        return None
+
+    return data[0]
+
+
+# ============================================================
+# CREATE INITIAL STATE
+# ============================================================
+
+def create_initial_state(match):
+
+    url = (
+        f"{SUPABASE_URL}/rest/v1/"
+        f"match_news_state"
+    )
+
+    payload = {
+
+        "match_id":
+            match["id"],
+
+        "last_status":
+            match["status"],
+
+        "last_home_score":
+            match["home_score"],
+
+        "last_away_score":
+            match["away_score"],
+
+        "initialized":
+            True
+    }
+
+    headers = {
+        **SUPABASE_HEADERS,
+        "Prefer":
+            "return=representation"
+    }
+
+    response = requests.post(
+        url,
+        headers=headers,
+        json=payload,
+        timeout=30
+    )
+
+    if response.status_code not in [200, 201]:
+
+        raise Exception(
+            "Failed to create initial state: "
+            f"{response.status_code}: "
+            f"{response.text}"
+        )
+
+    return response.json()[0]
+
+
+# ============================================================
+# UPDATE STATE
+# ============================================================
+
+def update_news_state(
+    match,
+    state_id=None
+):
+
+    url = (
+        f"{SUPABASE_URL}/rest/v1/"
+        f"match_news_state"
+    )
+
+    payload = {
+
+        "last_status":
+            match["status"],
+
+        "last_home_score":
+            match["home_score"],
+
+        "last_away_score":
+            match["away_score"],
+
+        "initialized":
+            True,
+
+        "updated_at":
+            datetime.now(TIMEZONE).isoformat()
+    }
+
+    if state_id:
+
+        params = {
+            "id":
+                f"eq.{state_id}"
+        }
+
+        response = requests.patch(
+            url,
+            headers=SUPABASE_HEADERS,
+            params=params,
+            json=payload,
+            timeout=30
+        )
+
+    else:
+
+        payload["match_id"] = match["id"]
+
+        headers = {
+            **SUPABASE_HEADERS,
+            "Prefer":
+                "return=representation"
+        }
+
+        response = requests.post(
+            url,
+            headers=headers,
+            json=payload,
+            timeout=30
+        )
+
+    if response.status_code not in [200, 201, 204]:
+
+        raise Exception(
+            "Failed to update news state: "
+            f"{response.status_code}: "
+            f"{response.text}"
+        )
+
+
+# ============================================================
+# CHECK EXISTING NEWS
+# ============================================================
+
+def news_exists(
+    match_id,
+    news_type
+):
+
+    url = (
+        f"{SUPABASE_URL}/rest/v1/news"
+    )
 
     params = {
 
@@ -163,6 +346,7 @@ def news_exists(match_id, news_type):
     )
 
     if response.status_code != 200:
+
         raise Exception(
             "Failed to check news: "
             f"{response.status_code}: "
@@ -173,39 +357,36 @@ def news_exists(match_id, news_type):
 
 
 # ============================================================
-# CREATE NEWS
+# CREATE NEWS RECORD
 # ============================================================
 
-def create_news(
+def create_news_record(
     match,
     news_type,
     title,
     content
 ):
 
-    match_id = match["id"]
-
     if news_exists(
-        match_id,
+        match["id"],
         news_type
     ):
 
         print(
-            f"Already exists: "
-            f"match={match_id} "
-            f"type={news_type}"
+            f"News already exists: "
+            f"{news_type}"
         )
 
         return None
 
-
-    url = f"{SUPABASE_URL}/rest/v1/news"
-
+    url = (
+        f"{SUPABASE_URL}/rest/v1/news"
+    )
 
     payload = {
 
         "match_id":
-            match_id,
+            match["id"],
 
         "news_type":
             news_type,
@@ -220,13 +401,11 @@ def create_news(
             False
     }
 
-
     headers = {
         **SUPABASE_HEADERS,
         "Prefer":
             "return=representation"
     }
-
 
     response = requests.post(
         url,
@@ -235,15 +414,13 @@ def create_news(
         timeout=30
     )
 
-
     if response.status_code not in [200, 201]:
 
         raise Exception(
-            "Failed to create news: "
+            "Failed to create news record: "
             f"{response.status_code}: "
             f"{response.text}"
         )
-
 
     return response.json()[0]
 
@@ -260,7 +437,6 @@ def send_telegram(text):
         f"sendMessage"
     )
 
-
     payload = {
 
         "chat_id":
@@ -270,38 +446,33 @@ def send_telegram(text):
             text
     }
 
-
     response = requests.post(
         url,
         json=payload,
         timeout=30
     )
 
-
     if response.status_code != 200:
 
         raise Exception(
-            "Telegram error: "
+            "Telegram HTTP error: "
             f"{response.status_code}: "
             f"{response.text}"
         )
 
-
     data = response.json()
-
 
     if not data.get("ok"):
 
         raise Exception(
-            f"Telegram returned failure: {data}"
+            f"Telegram API error: {data}"
         )
-
 
     return data["result"]["message_id"]
 
 
 # ============================================================
-# MARK AS SENT
+# MARK NEWS AS SENT
 # ============================================================
 
 def mark_news_as_sent(
@@ -309,13 +480,15 @@ def mark_news_as_sent(
     telegram_message_id
 ):
 
-    url = f"{SUPABASE_URL}/rest/v1/news"
+    url = (
+        f"{SUPABASE_URL}/rest/v1/news"
+    )
 
     params = {
+
         "id":
             f"eq.{news_id}"
     }
-
 
     payload = {
 
@@ -329,7 +502,6 @@ def mark_news_as_sent(
             datetime.now(TIMEZONE).isoformat()
     }
 
-
     response = requests.patch(
         url,
         headers=SUPABASE_HEADERS,
@@ -338,21 +510,20 @@ def mark_news_as_sent(
         timeout=30
     )
 
-
     if response.status_code not in [200, 204]:
 
         raise Exception(
-            "Failed to update news: "
+            "Failed to mark news as sent: "
             f"{response.status_code}: "
             f"{response.text}"
         )
 
 
 # ============================================================
-# FORMAT TIME
+# FORMAT KICKOFF TIME
 # ============================================================
 
-def format_match_time(kickoff):
+def format_kickoff(kickoff):
 
     dt = datetime.fromisoformat(
         kickoff.replace("Z", "+00:00")
@@ -369,7 +540,7 @@ def format_match_time(kickoff):
 
 def get_match_day(kickoff):
 
-    now, today, tomorrow = get_dates()
+    _, today, tomorrow = get_dates()
 
     dt = datetime.fromisoformat(
         kickoff.replace("Z", "+00:00")
@@ -387,7 +558,7 @@ def get_match_day(kickoff):
 
 
 # ============================================================
-# BUILD PRE-MATCH NEWS
+# BUILD SCHEDULED NEWS
 # ============================================================
 
 def build_scheduled_news(match):
@@ -398,7 +569,7 @@ def build_scheduled_news(match):
 
     competition = match["competition_name"]
 
-    kickoff = format_match_time(
+    kickoff = format_kickoff(
         match["kickoff_local"]
     )
 
@@ -406,28 +577,22 @@ def build_scheduled_news(match):
         match["kickoff_local"]
     )
 
-
     title = (
         f"📅 مباراة {day} | "
         f"{home} × {away}"
     )
 
-
     content = (
         f"📅 مباراة {day}\n\n"
-
         f"🏆 {competition}\n\n"
-
         f"⚽ {home}\n"
         f"🆚\n"
         f"⚽ {away}\n\n"
-
-        f"⏰ الموعد: {kickoff} بتوقيت القاهرة\n\n"
-
+        f"⏰ الموعد: {kickoff} "
+        f"بتوقيت القاهرة\n\n"
         f"📢 تابعوا المباراة "
         f"والتحديثات أولًا بأول."
     )
-
 
     return title, content
 
@@ -444,24 +609,18 @@ def build_started_news(match):
 
     competition = match["competition_name"]
 
-
     title = (
         f"🟢 انطلاق المباراة | "
         f"{home} × {away}"
     )
 
-
     content = (
         f"🟢 انطلاق المباراة الآن\n\n"
-
         f"🏆 {competition}\n\n"
-
-        f"{home} 0️⃣ - 0️⃣ {away}\n\n"
-
-        f"⚽ بدأت المباراة "
+        f"⚽ {home} 0 - 0 {away}\n\n"
+        f"بدأت المباراة "
         f"والنتيجة حتى الآن 0-0."
     )
-
 
     return title, content
 
@@ -482,57 +641,77 @@ def build_finished_news(match):
 
     away_score = match["away_score"]
 
-
     title = (
         f"🏁 نهاية المباراة | "
         f"{home} {home_score} - "
         f"{away_score} {away}"
     )
 
-
     content = (
         f"🏁 نهاية المباراة\n\n"
-
         f"🏆 {competition}\n\n"
-
         f"⚽ {home} "
         f"{home_score} - "
         f"{away_score} {away}\n\n"
-
         f"📊 النتيجة النهائية: "
         f"{home_score} - {away_score}"
     )
-
 
     return title, content
 
 
 # ============================================================
-# PROCESS MATCH
+# PROCESS INITIAL SYNC
 # ============================================================
 
-def process_match(match):
+def initialize_match(match):
 
-    status = match["status"]
+    print(
+        f"INITIAL SYNC: "
+        f"{match['home_team_name']} "
+        f"vs "
+        f"{match['away_team_name']}"
+    )
+
+    create_initial_state(match)
+
+    print(
+        f"Saved initial status: "
+        f"{match['status']}"
+    )
+
+
+# ============================================================
+# PROCESS MATCH CHANGES
+# ============================================================
+
+def process_match(match, state):
+
+    current_status = match["status"]
+
+    previous_status = state["last_status"]
+
+    match_id = match["id"]
+
+    print(
+        f"Previous: {previous_status} "
+        f"→ Current: {current_status}"
+    )
 
     # --------------------------------------------------------
-    # MATCH FINISHED
+    # No status change
     # --------------------------------------------------------
 
-    if status == "FINISHED":
+    if previous_status == current_status:
 
-        news_type = "MATCH_FINISHED"
-
-        title, content = build_finished_news(
-            match
-        )
+        return False
 
 
     # --------------------------------------------------------
-    # MATCH STARTED
+    # TIMED → IN_PLAY
     # --------------------------------------------------------
 
-    elif status in [
+    if current_status in [
         "IN_PLAY",
         "PAUSED"
     ]:
@@ -543,27 +722,32 @@ def process_match(match):
             match
         )
 
-
     # --------------------------------------------------------
-    # MATCH SCHEDULED
+    # ANY → FINISHED
     # --------------------------------------------------------
 
-    elif status in [
-        "TIMED",
-        "SCHEDULED"
-    ]:
+    elif current_status == "FINISHED":
 
-        news_type = "MATCH_SCHEDULED"
+        news_type = "MATCH_FINISHED"
 
-        title, content = build_scheduled_news(
+        title, content = build_finished_news(
             match
         )
 
+    # --------------------------------------------------------
+    # OTHER STATUS
+    # --------------------------------------------------------
 
     else:
 
         print(
-            f"Skipping status: {status}"
+            f"Status changed but no news rule: "
+            f"{previous_status} → {current_status}"
+        )
+
+        update_news_state(
+            match,
+            state["id"]
         )
 
         return False
@@ -573,19 +757,19 @@ def process_match(match):
     # CREATE NEWS
     # --------------------------------------------------------
 
-    news = create_news(
-
+    news = create_news_record(
         match,
-
         news_type,
-
         title,
-
         content
     )
 
-
     if not news:
+
+        update_news_state(
+            match,
+            state["id"]
+        )
 
         return False
 
@@ -596,7 +780,7 @@ def process_match(match):
 
 
     # --------------------------------------------------------
-    # SEND
+    # SEND TELEGRAM
     # --------------------------------------------------------
 
     try:
@@ -605,23 +789,14 @@ def process_match(match):
             content
         )
 
-
         mark_news_as_sent(
-
             news["id"],
-
             telegram_message_id
-
         )
-
 
         print(
             "Telegram: SENT ✅"
         )
-
-
-        return True
-
 
     except Exception as error:
 
@@ -631,7 +806,27 @@ def process_match(match):
 
         print(error)
 
+        # مهم:
+        # لا نحدّث الحالة هنا.
+        # حتى يستطيع التشغيل القادم إعادة المحاولة.
+
         return False
+
+
+    # --------------------------------------------------------
+    # UPDATE STATE ONLY AFTER SUCCESS
+    # --------------------------------------------------------
+
+    update_news_state(
+        match,
+        state["id"]
+    )
+
+    print(
+        f"State updated for match {match_id}"
+    )
+
+    return True
 
 
 # ============================================================
@@ -648,15 +843,17 @@ def main():
 
     print("=" * 70)
 
-
     check_environment()
-
 
     now, today, tomorrow = get_dates()
 
+    print(
+        f"Timezone : Africa/Cairo"
+    )
 
     print(
-        f"Now      : {now.strftime('%Y-%m-%d %H:%M:%S')}"
+        f"Now      : "
+        f"{now.strftime('%Y-%m-%d %H:%M:%S')}"
     )
 
     print(
@@ -667,23 +864,36 @@ def main():
         f"Tomorrow : {tomorrow}"
     )
 
+    print("=" * 70)
+
 
     matches = get_target_matches()
-
 
     print(
         f"Matches found: {len(matches)}"
     )
 
 
-    created = 0
+    initialized = 0
 
+    changed = 0
+
+    skipped = 0
+
+
+    # ========================================================
+    # PROCESS MATCHES
+    # ========================================================
 
     for match in matches:
 
         print("")
 
         print("-" * 70)
+
+        print(
+            f"🏆 {match['competition_name']}"
+        )
 
         print(
             f"{match['home_team_name']} "
@@ -696,16 +906,57 @@ def main():
         )
 
 
-        if process_match(match):
+        # ----------------------------------------------------
+        # Get previous state
+        # ----------------------------------------------------
 
-            created += 1
+        state = get_news_state(
+            match["id"]
+        )
 
+
+        # ----------------------------------------------------
+        # INITIAL SYNC
+        # ----------------------------------------------------
+
+        if state is None:
+
+            initialize_match(
+                match
+            )
+
+            initialized += 1
+
+            continue
+
+
+        # ----------------------------------------------------
+        # Process changes
+        # ----------------------------------------------------
+
+        if process_match(
+            match,
+            state
+        ):
+
+            changed += 1
+
+        else:
+
+            skipped += 1
+
+
+    # ========================================================
+    # SUMMARY
+    # ========================================================
 
     print("")
 
     print("=" * 70)
 
-    print("FINAL SUMMARY")
+    print(
+        "FINAL SUMMARY"
+    )
 
     print("=" * 70)
 
@@ -714,7 +965,15 @@ def main():
     )
 
     print(
-        f"News created    : {created}"
+        f"Initialized     : {initialized}"
+    )
+
+    print(
+        f"News sent       : {changed}"
+    )
+
+    print(
+        f"Skipped         : {skipped}"
     )
 
     print("=" * 70)
