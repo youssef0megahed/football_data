@@ -15,45 +15,64 @@ SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
 TIMEZONE = ZoneInfo("Africa/Cairo")
 
-FOOTBALL_BASE_URL = "https://api.football-data.org/v4/competitions"
+FOOTBALL_BASE_URL = (
+    "https://api.football-data.org/v4/competitions"
+)
+
+
+# ============================================================
+# FIVE BIG LEAGUES
+# ============================================================
 
 COMPETITIONS = {
+
     "Premier League": {
         "code": "PL",
         "country": "England"
     },
+
     "La Liga": {
         "code": "PD",
         "country": "Spain"
     },
+
     "Serie A": {
         "code": "SA",
         "country": "Italy"
     },
+
     "Bundesliga": {
         "code": "BL1",
         "country": "Germany"
     },
+
     "Ligue 1": {
         "code": "FL1",
         "country": "France"
     },
+
 }
 
 
 # ============================================================
-# HEADERS
+# API HEADERS
 # ============================================================
 
 FOOTBALL_HEADERS = {
     "X-Auth-Token": FOOTBALL_DATA_TOKEN
 }
 
+
 SUPABASE_HEADERS = {
+
     "apikey": SUPABASE_KEY,
+
     "Authorization": f"Bearer {SUPABASE_KEY}",
+
     "Content-Type": "application/json",
+
     "Prefer": "resolution=merge-duplicates,return=minimal"
+
 }
 
 
@@ -65,6 +84,7 @@ def get_current_season():
 
     now = datetime.now(TIMEZONE)
 
+    # European football season starts around July
     if now.month >= 7:
         return now.year
 
@@ -72,31 +92,50 @@ def get_current_season():
 
 
 # ============================================================
-# GET SEASON MATCHES
+# GET ALL SEASON MATCHES
 # ============================================================
 
-def get_competition_matches(competition_code, season):
+def get_competition_matches(
+    competition_code,
+    season
+):
 
-    url = f"{FOOTBALL_BASE_URL}/{competition_code}/matches"
+    url = (
+        f"{FOOTBALL_BASE_URL}/"
+        f"{competition_code}/matches"
+    )
 
     params = {
         "season": season
     }
 
     response = requests.get(
+
         url,
+
         headers=FOOTBALL_HEADERS,
+
         params=params,
+
         timeout=30
+
     )
 
+
     if response.status_code != 200:
+
         raise Exception(
+
             f"Football API error "
-            f"{response.status_code}: {response.text}"
+            f"{response.status_code}: "
+            f"{response.text}"
+
         )
 
-    return response.json().get("matches", [])
+
+    data = response.json()
+
+    return data.get("matches", [])
 
 
 # ============================================================
@@ -106,45 +145,81 @@ def get_competition_matches(competition_code, season):
 def convert_to_cairo(utc_date):
 
     utc_datetime = datetime.fromisoformat(
-        utc_date.replace("Z", "+00:00")
+
+        utc_date.replace(
+            "Z",
+            "+00:00"
+        )
+
     )
 
-    return utc_datetime.astimezone(TIMEZONE)
+    return utc_datetime.astimezone(
+        TIMEZONE
+    )
 
 
 # ============================================================
-# GET COMPETITION ID
+# GET SUPABASE COMPETITION ID
 # ============================================================
 
-def get_competition_id(competition_code):
+def get_competition_id(
+    competition_code
+):
 
-    url = f"{SUPABASE_URL}/rest/v1/competitions"
+    url = (
+        f"{SUPABASE_URL}"
+        f"/rest/v1/competitions"
+    )
+
 
     params = {
-        "code": f"eq.{competition_code}",
-        "select": "id"
+
+        "code":
+            f"eq.{competition_code}",
+
+        "select":
+            "id"
+
     }
 
+
     response = requests.get(
+
         url,
+
         headers=SUPABASE_HEADERS,
+
         params=params,
+
         timeout=30
+
     )
 
+
     if response.status_code != 200:
+
         raise Exception(
-            f"Supabase competition lookup failed "
-            f"{response.status_code}: {response.text}"
+
+            "Supabase competition lookup "
+            f"failed {response.status_code}: "
+            f"{response.text}"
+
         )
+
 
     data = response.json()
 
+
     if not data:
+
         raise Exception(
-            f"Competition {competition_code} "
-            f"does not exist in Supabase."
+
+            f"Competition "
+            f"{competition_code} "
+            "does not exist in Supabase."
+
         )
+
 
     return data[0]["id"]
 
@@ -155,56 +230,202 @@ def get_competition_id(competition_code):
 
 def upsert_teams(matches):
 
+    """
+    Save all teams found in the season matches.
+
+    Returns a dictionary:
+
+    {
+        "football-data.org:5335": 25,
+        "football-data.org:94": 26
+    }
+
+    The value is the internal Supabase teams.id.
+    """
+
     teams = {}
+
+
+    # --------------------------------------------------------
+    # Extract unique teams
+    # --------------------------------------------------------
 
     for match in matches:
 
         home_team = match["homeTeam"]
+
         away_team = match["awayTeam"]
 
-        for team in [home_team, away_team]:
 
-            team_id = str(team["id"])
+        for team in [
+            home_team,
+            away_team
+        ]:
 
-            teams[team_id] = {
-                "source": "football-data.org",
+            source_team_id = str(
+                team["id"]
+            )
 
-                "source_team_id": team_id,
 
-                "name": team["name"],
+            key = (
+                "football-data.org",
+                source_team_id
+            )
 
-                "short_name": team.get("shortName"),
 
-                "tla": team.get("tla"),
+            teams[key] = {
 
-                "crest_url": team.get("crest")
+                "source":
+                    "football-data.org",
+
+                "source_team_id":
+                    source_team_id,
+
+                "name":
+                    team["name"],
+
+                "short_name":
+                    team.get("shortName"),
+
+                "tla":
+                    team.get("tla"),
+
+                "crest_url":
+                    team.get("crest")
+
             }
 
+
     if not teams:
-        return 0
 
-    url = f"{SUPABASE_URL}/rest/v1/teams"
+        return {}
 
-    params = {
-        "on_conflict": "source,source_team_id"
-    }
 
-    response = requests.post(
-        url,
-        headers=SUPABASE_HEADERS,
-        params=params,
-        json=list(teams.values()),
-        timeout=30
+    # --------------------------------------------------------
+    # UPSERT teams
+    # --------------------------------------------------------
+
+    url = (
+        f"{SUPABASE_URL}"
+        f"/rest/v1/teams"
     )
 
-    if response.status_code not in [200, 201]:
+
+    params = {
+
+        "on_conflict":
+            "source,source_team_id",
+
+        "select":
+            "id,source,source_team_id"
+
+    }
+
+
+    response = requests.post(
+
+        url,
+
+        headers=SUPABASE_HEADERS,
+
+        params=params,
+
+        json=list(
+            teams.values()
+        ),
+
+        timeout=30
+
+    )
+
+
+    if response.status_code not in [
+        200,
+        201
+    ]:
+
         raise Exception(
-            f"Supabase teams upsert failed "
-            f"{response.status_code}: "
+
+            "Supabase teams upsert "
+            f"failed {response.status_code}: "
             f"{response.text}"
+
         )
 
-    return len(teams)
+
+    # --------------------------------------------------------
+    # Get internal Supabase IDs
+    # --------------------------------------------------------
+
+    source_ids = [
+        team["source_team_id"]
+        for team in teams.values()
+    ]
+
+
+    params = {
+
+        "source":
+            "eq.football-data.org",
+
+        "source_team_id":
+            "in.("
+            + ",".join(source_ids)
+            + ")",
+
+        "select":
+            "id,source,source_team_id"
+
+    }
+
+
+    response = requests.get(
+
+        url,
+
+        headers=SUPABASE_HEADERS,
+
+        params=params,
+
+        timeout=30
+
+    )
+
+
+    if response.status_code != 200:
+
+        raise Exception(
+
+            "Failed to retrieve team "
+            f"database IDs "
+            f"{response.status_code}: "
+            f"{response.text}"
+
+        )
+
+
+    saved_teams = response.json()
+
+
+    team_db_ids = {}
+
+
+    for team in saved_teams:
+
+        key = (
+
+            team["source"],
+
+            str(
+                team["source_team_id"]
+            )
+
+        )
+
+        team_db_ids[key] = team["id"]
+
+
+    return team_db_ids
 
 
 # ============================================================
@@ -212,59 +433,203 @@ def upsert_teams(matches):
 # ============================================================
 
 def prepare_match(
+
     match,
+
     competition_id,
+
     competition_name,
-    season
+
+    season,
+
+    team_db_ids
+
 ):
 
     kickoff_utc = match["utcDate"]
 
-    cairo_datetime = convert_to_cairo(kickoff_utc)
 
-    score = match.get("score", {})
-    full_time = score.get("fullTime", {})
+    cairo_datetime = convert_to_cairo(
+        kickoff_utc
+    )
 
-    home_score = full_time.get("home")
-    away_score = full_time.get("away")
+
+    # --------------------------------------------------------
+    # Score
+    # --------------------------------------------------------
+
+    score = match.get(
+        "score",
+        {}
+    )
+
+
+    full_time = score.get(
+        "fullTime",
+        {}
+    )
+
+
+    home_score = full_time.get(
+        "home"
+    )
+
+
+    away_score = full_time.get(
+        "away"
+    )
+
+
+    # --------------------------------------------------------
+    # Teams
+    # --------------------------------------------------------
 
     home_team = match["homeTeam"]
+
     away_team = match["awayTeam"]
 
+
+    home_source_id = str(
+        home_team["id"]
+    )
+
+
+    away_source_id = str(
+        away_team["id"]
+    )
+
+
+    home_key = (
+
+        "football-data.org",
+
+        home_source_id
+
+    )
+
+
+    away_key = (
+
+        "football-data.org",
+
+        away_source_id
+
+    )
+
+
+    home_db_id = team_db_ids.get(
+        home_key
+    )
+
+
+    away_db_id = team_db_ids.get(
+        away_key
+    )
+
+
+    # --------------------------------------------------------
+    # Safety check
+    # --------------------------------------------------------
+
+    if home_db_id is None:
+
+        raise Exception(
+
+            "Could not find Supabase "
+            "database ID for home team: "
+            f"{home_team['name']} "
+            f"({home_source_id})"
+
+        )
+
+
+    if away_db_id is None:
+
+        raise Exception(
+
+            "Could not find Supabase "
+            "database ID for away team: "
+            f"{away_team['name']} "
+            f"({away_source_id})"
+
+        )
+
+
+    # --------------------------------------------------------
+    # Match record
+    # --------------------------------------------------------
+
     return {
-        "source": "football-data.org",
 
-        "source_match_id": match["id"],
+        "source":
+            "football-data.org",
 
-        "competition_id": competition_id,
+        "source_match_id":
+            match["id"],
 
-        "competition_name": competition_name,
+        "competition_id":
+            competition_id,
 
-        "season": season,
+        "competition_name":
+            competition_name,
 
-        "kickoff_utc": kickoff_utc,
+        "season":
+            season,
 
-        "kickoff_local": cairo_datetime.isoformat(),
+        "kickoff_utc":
+            kickoff_utc,
 
-        "timezone": "Africa/Cairo",
+        "kickoff_local":
+            cairo_datetime.isoformat(),
 
-        "home_team_id": str(home_team["id"]),
+        "timezone":
+            "Africa/Cairo",
 
-        "home_team_name": home_team["name"],
 
-        "away_team_id": str(away_team["id"]),
+        # Source IDs
+        "home_team_id":
+            home_source_id,
 
-        "away_team_name": away_team["name"],
+        "away_team_id":
+            away_source_id,
 
-        "status": match["status"],
 
-        "home_score": home_score,
+        # Supabase internal IDs
+        "home_team_db_id":
+            home_db_id,
 
-        "away_score": away_score,
+        "away_team_db_id":
+            away_db_id,
 
-        "venue": match.get("venue"),
 
-        "last_updated_at": match.get("lastUpdated")
+        # Names
+        "home_team_name":
+            home_team["name"],
+
+        "away_team_name":
+            away_team["name"],
+
+
+        # Match status
+        "status":
+            match["status"],
+
+
+        # Score
+        "home_score":
+            home_score,
+
+        "away_score":
+            away_score,
+
+
+        # Other information
+        "venue":
+            match.get("venue"),
+
+        "last_updated_at":
+            match.get("lastUpdated")
+
     }
 
 
@@ -275,28 +640,52 @@ def prepare_match(
 def upsert_matches(matches):
 
     if not matches:
+
         return 0
 
-    url = f"{SUPABASE_URL}/rest/v1/matches"
 
-    params = {
-        "on_conflict": "source,source_match_id"
-    }
-
-    response = requests.post(
-        url,
-        headers=SUPABASE_HEADERS,
-        params=params,
-        json=matches,
-        timeout=30
+    url = (
+        f"{SUPABASE_URL}"
+        f"/rest/v1/matches"
     )
 
-    if response.status_code not in [200, 201]:
+
+    params = {
+
+        "on_conflict":
+            "source,source_match_id"
+
+    }
+
+
+    response = requests.post(
+
+        url,
+
+        headers=SUPABASE_HEADERS,
+
+        params=params,
+
+        json=matches,
+
+        timeout=30
+
+    )
+
+
+    if response.status_code not in [
+        200,
+        201
+    ]:
+
         raise Exception(
-            f"Supabase matches upsert failed "
-            f"{response.status_code}: "
+
+            "Supabase matches upsert "
+            f"failed {response.status_code}: "
             f"{response.text}"
+
         )
+
 
     return len(matches)
 
@@ -307,49 +696,116 @@ def upsert_matches(matches):
 
 def main():
 
+    # ========================================================
+    # CHECK ENVIRONMENT
+    # ========================================================
+
     if not FOOTBALL_DATA_TOKEN:
+
         raise Exception(
             "FOOTBALL_DATA_TOKEN is missing."
         )
 
+
     if not SUPABASE_URL:
+
         raise Exception(
             "SUPABASE_URL is missing."
         )
 
+
     if not SUPABASE_KEY:
+
         raise Exception(
             "SUPABASE_KEY is missing."
         )
 
-    now = datetime.now(TIMEZONE)
+
+    # ========================================================
+    # DATES
+    # ========================================================
+
+    now = datetime.now(
+        TIMEZONE
+    )
+
 
     today = now.date()
 
-    yesterday = today - timedelta(days=1)
 
-    tomorrow = today + timedelta(days=1)
+    yesterday = (
+        today -
+        timedelta(days=1)
+    )
+
+
+    tomorrow = (
+        today +
+        timedelta(days=1)
+    )
+
 
     target_dates = {
+
         yesterday,
+
         today,
+
         tomorrow
+
     }
+
+
+    # ========================================================
+    # SEASON
+    # ========================================================
 
     season = get_current_season()
 
-    print("=" * 70)
-    print("FOOTBALL DATA PIPELINE")
+
+    # ========================================================
+    # HEADER
+    # ========================================================
+
     print("=" * 70)
 
-    print(f"Timezone  : Africa/Cairo")
-    print(f"Yesterday : {yesterday}")
-    print(f"Today     : {today}")
-    print(f"Tomorrow  : {tomorrow}")
-    print(f"Season    : {season}")
+    print(
+        "FOOTBALL DATA PIPELINE"
+    )
 
-    total_processed = 0
-    total_teams = 0
+    print("=" * 70)
+
+    print(
+        f"Timezone  : Africa/Cairo"
+    )
+
+    print(
+        f"Yesterday : {yesterday}"
+    )
+
+    print(
+        f"Today     : {today}"
+    )
+
+    print(
+        f"Tomorrow  : {tomorrow}"
+    )
+
+    print(
+        f"Season    : {season}"
+    )
+
+    print("=" * 70)
+
+
+    # ========================================================
+    # GLOBAL COUNTERS
+    # ========================================================
+
+    total_matches_processed = 0
+
+    total_teams_processed = 0
+
 
     # ========================================================
     # FIVE LEAGUES
@@ -357,126 +813,203 @@ def main():
 
     for league_name, league_info in COMPETITIONS.items():
 
-        competition_code = league_info["code"]
+        competition_code = (
+            league_info["code"]
+        )
+
 
         print("")
+
         print("=" * 70)
-        print(f"🏆 {league_name}")
+
+        print(
+            f"🏆 {league_name}"
+        )
+
         print("=" * 70)
+
 
         try:
 
-            # ------------------------------------------------
-            # Get competition ID
-            # ------------------------------------------------
+            # =================================================
+            # GET COMPETITION ID
+            # =================================================
 
-            competition_id = get_competition_id(
-                competition_code
+            competition_id = (
+                get_competition_id(
+                    competition_code
+                )
             )
 
+
             print(
-                f"Supabase Competition ID: "
+                "Supabase Competition ID: "
                 f"{competition_id}"
             )
 
-            # ------------------------------------------------
-            # Get season matches
-            # ------------------------------------------------
 
-            matches = get_competition_matches(
-                competition_code,
-                season
+            # =================================================
+            # GET SEASON MATCHES
+            # =================================================
+
+            matches = (
+                get_competition_matches(
+
+                    competition_code,
+
+                    season
+
+                )
             )
 
+
             print(
-                f"Season matches received: "
+                "Season matches received: "
                 f"{len(matches)}"
             )
 
-            # ------------------------------------------------
-            # Save teams
-            # ------------------------------------------------
 
-            teams_saved = upsert_teams(matches)
+            # =================================================
+            # SAVE TEAMS
+            # =================================================
 
-            total_teams += teams_saved
-
-            print(
-                f"Teams upserted: "
-                f"{teams_saved}"
+            team_db_ids = (
+                upsert_teams(matches)
             )
 
-            # ------------------------------------------------
-            # Prepare selected matches
-            # ------------------------------------------------
+
+            teams_count = len(
+                team_db_ids
+            )
+
+
+            total_teams_processed += (
+                teams_count
+            )
+
+
+            print(
+                "Teams processed: "
+                f"{teams_count}"
+            )
+
+
+            # =================================================
+            # PREPARE MATCHES
+            # =================================================
 
             matches_to_update = []
 
+
             yesterday_count = 0
+
             today_count = 0
+
             tomorrow_count = 0
+
 
             for match in matches:
 
-                cairo_datetime = convert_to_cairo(
-                    match["utcDate"]
+                cairo_datetime = (
+                    convert_to_cairo(
+                        match["utcDate"]
+                    )
                 )
 
-                match_date = cairo_datetime.date()
 
+                match_date = (
+                    cairo_datetime.date()
+                )
+
+
+                # Only yesterday/today/tomorrow
                 if match_date not in target_dates:
+
                     continue
 
+
                 record = prepare_match(
+
                     match,
+
                     competition_id,
+
                     league_name,
-                    season
+
+                    season,
+
+                    team_db_ids
+
                 )
 
-                matches_to_update.append(record)
 
+                matches_to_update.append(
+                    record
+                )
+
+
+                # Counters
                 if match_date == yesterday:
+
                     yesterday_count += 1
 
+
                 elif match_date == today:
+
                     today_count += 1
 
+
                 elif match_date == tomorrow:
+
                     tomorrow_count += 1
 
-            # ------------------------------------------------
+
+            # =================================================
             # UPSERT MATCHES
-            # ------------------------------------------------
+            # =================================================
 
             saved = upsert_matches(
                 matches_to_update
             )
 
-            total_processed += saved
 
-            print("")
+            total_matches_processed += (
+                saved
+            )
+
+
+            # =================================================
+            # LEAGUE SUMMARY
+            # =================================================
+
             print(
-                f"Yesterday : {yesterday_count}"
+                "Yesterday : "
+                f"{yesterday_count}"
             )
 
             print(
-                f"Today     : {today_count}"
+                "Today     : "
+                f"{today_count}"
             )
 
             print(
-                f"Tomorrow  : {tomorrow_count}"
+                "Tomorrow  : "
+                f"{tomorrow_count}"
             )
 
             print(
-                f"Matches upserted: {saved}"
+                "Matches upserted: "
+                f"{saved}"
             )
+
 
         except Exception as error:
 
             print("")
+
             print(
-                f"❌ ERROR in {league_name}:"
+                f"❌ ERROR in "
+                f"{league_name}:"
             )
 
             print(error)
@@ -485,30 +1018,60 @@ def main():
                 "Continuing with next league..."
             )
 
+
     # ========================================================
     # FINAL SUMMARY
     # ========================================================
 
     print("")
-    print("=" * 70)
-    print("FINAL SUMMARY")
+
     print("=" * 70)
 
     print(
-        f"Teams processed  : {total_teams}"
+        "FINAL SUMMARY"
     )
 
+    print("=" * 70)
+
+
     print(
-        f"Matches processed: {total_processed}"
+        "Teams processed  : "
+        f"{total_teams_processed}"
     )
+
+
+    print(
+        "Matches processed: "
+        f"{total_matches_processed}"
+    )
+
 
     print("")
-    print("Football API requests: 5")
-    print("Database mode: UPSERT")
-    print("Status: SUCCESS")
+
+    print(
+        "Football API requests: 5"
+    )
+
+    print(
+        "Database mode: UPSERT"
+    )
+
+    print(
+        "Team relationships: ENABLED"
+    )
+
+    print(
+        "Status: SUCCESS"
+    )
+
 
     print("=" * 70)
 
 
+# ============================================================
+# ENTRY POINT
+# ============================================================
+
 if __name__ == "__main__":
+
     main()
