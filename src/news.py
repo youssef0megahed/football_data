@@ -1,6 +1,9 @@
 import os
 import requests
 
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
+
 
 # ============================================================
 # CONFIGURATION
@@ -11,6 +14,8 @@ SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+
+TIMEZONE = ZoneInfo("Africa/Cairo")
 
 
 # ============================================================
@@ -25,7 +30,7 @@ SUPABASE_HEADERS = {
 
 
 # ============================================================
-# CHECK ENVIRONMENT
+# ENVIRONMENT
 # ============================================================
 
 def check_environment():
@@ -44,7 +49,6 @@ def check_environment():
     ]
 
     if missing:
-
         raise Exception(
             "Missing environment variables: "
             + ", ".join(missing)
@@ -52,46 +56,75 @@ def check_environment():
 
 
 # ============================================================
-# GET FINISHED MATCHES WITHOUT NEWS
+# CURRENT TIME
 # ============================================================
 
-def get_finished_matches():
+def get_dates():
 
-    url = (
-        f"{SUPABASE_URL}/rest/v1/matches"
+    now = datetime.now(TIMEZONE)
+
+    today = now.date()
+
+    tomorrow = today + timedelta(days=1)
+
+    return now, today, tomorrow
+
+
+# ============================================================
+# GET TODAY + TOMORROW MATCHES
+# ============================================================
+
+def get_target_matches():
+
+    _, today, tomorrow = get_dates()
+
+    today_start = datetime(
+        today.year,
+        today.month,
+        today.day,
+        tzinfo=TIMEZONE
     )
+
+    tomorrow_end = datetime(
+        tomorrow.year,
+        tomorrow.month,
+        tomorrow.day,
+        23,
+        59,
+        59,
+        tzinfo=TIMEZONE
+    )
+
+    url = f"{SUPABASE_URL}/rest/v1/matches"
 
     params = {
 
-        "status":
-            "eq.FINISHED",
+        "kickoff_local":
+            f"gte.{today_start.isoformat()}",
+
+        "and":
+            f"(kickoff_local.lte.{tomorrow_end.isoformat()})",
 
         "select":
             "id,competition_name,home_team_name,"
             "away_team_name,home_score,away_score,"
-            "kickoff_local",
+            "status,kickoff_local,venue",
 
         "order":
-            "kickoff_local.desc"
+            "kickoff_local.asc"
 
     }
 
     response = requests.get(
-
         url,
-
         headers=SUPABASE_HEADERS,
-
         params=params,
-
         timeout=30
-
     )
 
     if response.status_code != 200:
-
         raise Exception(
-            "Failed to get finished matches: "
+            "Failed to get matches: "
             f"{response.status_code}: "
             f"{response.text}"
         )
@@ -100,14 +133,12 @@ def get_finished_matches():
 
 
 # ============================================================
-# CHECK IF NEWS ALREADY EXISTS
+# CHECK NEWS
 # ============================================================
 
 def news_exists(match_id, news_type):
 
-    url = (
-        f"{SUPABASE_URL}/rest/v1/news"
-    )
+    url = f"{SUPABASE_URL}/rest/v1/news"
 
     params = {
 
@@ -122,23 +153,16 @@ def news_exists(match_id, news_type):
 
         "limit":
             "1"
-
     }
 
     response = requests.get(
-
         url,
-
         headers=SUPABASE_HEADERS,
-
         params=params,
-
         timeout=30
-
     )
 
     if response.status_code != 200:
-
         raise Exception(
             "Failed to check news: "
             f"{response.status_code}: "
@@ -152,16 +176,14 @@ def news_exists(match_id, news_type):
 # CREATE NEWS
 # ============================================================
 
-def create_news(match):
+def create_news(
+    match,
+    news_type,
+    title,
+    content
+):
 
     match_id = match["id"]
-
-    news_type = "MATCH_FINISHED"
-
-
-    # --------------------------------------------------------
-    # Prevent duplicates
-    # --------------------------------------------------------
 
     if news_exists(
         match_id,
@@ -169,61 +191,15 @@ def create_news(match):
     ):
 
         print(
-            f"News already exists "
-            f"for match {match_id}"
+            f"Already exists: "
+            f"match={match_id} "
+            f"type={news_type}"
         )
 
         return None
 
 
-    home = match["home_team_name"]
-
-    away = match["away_team_name"]
-
-    home_score = match["home_score"]
-
-    away_score = match["away_score"]
-
-    competition = match["competition_name"]
-
-
-    # --------------------------------------------------------
-    # Generate title
-    # --------------------------------------------------------
-
-    title = (
-        f"🏁 انتهت المباراة | "
-        f"{home} {home_score} - "
-        f"{away_score} {away}"
-    )
-
-
-    # --------------------------------------------------------
-    # Generate content
-    # --------------------------------------------------------
-
-    content = (
-        f"🏁 انتهت المباراة\n\n"
-
-        f"🏆 {competition}\n\n"
-
-        f"⚽ {home} "
-        f"{home_score} - "
-        f"{away_score} "
-        f"{away}\n\n"
-
-        f"📊 النتيجة النهائية: "
-        f"{home_score} - {away_score}"
-    )
-
-
-    # --------------------------------------------------------
-    # Save news
-    # --------------------------------------------------------
-
-    url = (
-        f"{SUPABASE_URL}/rest/v1/news"
-    )
+    url = f"{SUPABASE_URL}/rest/v1/news"
 
 
     payload = {
@@ -242,37 +218,25 @@ def create_news(match):
 
         "telegram_sent":
             False
-
     }
 
 
     headers = {
-
         **SUPABASE_HEADERS,
-
         "Prefer":
             "return=representation"
-
     }
 
 
     response = requests.post(
-
         url,
-
         headers=headers,
-
         json=payload,
-
         timeout=30
-
     )
 
 
-    if response.status_code not in [
-        200,
-        201
-    ]:
+    if response.status_code not in [200, 201]:
 
         raise Exception(
             "Failed to create news: "
@@ -281,18 +245,14 @@ def create_news(match):
         )
 
 
-    data = response.json()
-
-    return data[0]
+    return response.json()[0]
 
 
 # ============================================================
 # SEND TELEGRAM
 # ============================================================
 
-def send_telegram(
-    text
-):
+def send_telegram(text):
 
     url = (
         f"https://api.telegram.org/"
@@ -308,18 +268,13 @@ def send_telegram(
 
         "text":
             text
-
     }
 
 
     response = requests.post(
-
         url,
-
         json=payload,
-
         timeout=30
-
     )
 
 
@@ -338,8 +293,7 @@ def send_telegram(
     if not data.get("ok"):
 
         raise Exception(
-            "Telegram returned failure: "
-            f"{data}"
+            f"Telegram returned failure: {data}"
         )
 
 
@@ -347,7 +301,7 @@ def send_telegram(
 
 
 # ============================================================
-# MARK NEWS AS SENT
+# MARK AS SENT
 # ============================================================
 
 def mark_news_as_sent(
@@ -355,16 +309,11 @@ def mark_news_as_sent(
     telegram_message_id
 ):
 
-    url = (
-        f"{SUPABASE_URL}/rest/v1/news"
-    )
-
+    url = f"{SUPABASE_URL}/rest/v1/news"
 
     params = {
-
         "id":
             f"eq.{news_id}"
-
     }
 
 
@@ -377,36 +326,312 @@ def mark_news_as_sent(
             telegram_message_id,
 
         "published_at":
-            "now()"
-
+            datetime.now(TIMEZONE).isoformat()
     }
 
 
     response = requests.patch(
-
         url,
-
         headers=SUPABASE_HEADERS,
-
         params=params,
-
         json=payload,
-
         timeout=30
-
     )
 
 
-    if response.status_code not in [
-        200,
-        204
-    ]:
+    if response.status_code not in [200, 204]:
 
         raise Exception(
-            "Failed to mark news as sent: "
+            "Failed to update news: "
             f"{response.status_code}: "
             f"{response.text}"
         )
+
+
+# ============================================================
+# FORMAT TIME
+# ============================================================
+
+def format_match_time(kickoff):
+
+    dt = datetime.fromisoformat(
+        kickoff.replace("Z", "+00:00")
+    )
+
+    dt = dt.astimezone(TIMEZONE)
+
+    return dt.strftime("%H:%M")
+
+
+# ============================================================
+# GET MATCH DAY
+# ============================================================
+
+def get_match_day(kickoff):
+
+    now, today, tomorrow = get_dates()
+
+    dt = datetime.fromisoformat(
+        kickoff.replace("Z", "+00:00")
+    )
+
+    dt = dt.astimezone(TIMEZONE)
+
+    if dt.date() == today:
+        return "اليوم"
+
+    if dt.date() == tomorrow:
+        return "غدًا"
+
+    return "لاحقًا"
+
+
+# ============================================================
+# BUILD PRE-MATCH NEWS
+# ============================================================
+
+def build_scheduled_news(match):
+
+    home = match["home_team_name"]
+
+    away = match["away_team_name"]
+
+    competition = match["competition_name"]
+
+    kickoff = format_match_time(
+        match["kickoff_local"]
+    )
+
+    day = get_match_day(
+        match["kickoff_local"]
+    )
+
+
+    title = (
+        f"📅 مباراة {day} | "
+        f"{home} × {away}"
+    )
+
+
+    content = (
+        f"📅 مباراة {day}\n\n"
+
+        f"🏆 {competition}\n\n"
+
+        f"⚽ {home}\n"
+        f"🆚\n"
+        f"⚽ {away}\n\n"
+
+        f"⏰ الموعد: {kickoff} بتوقيت القاهرة\n\n"
+
+        f"📢 تابعوا المباراة "
+        f"والتحديثات أولًا بأول."
+    )
+
+
+    return title, content
+
+
+# ============================================================
+# BUILD STARTED NEWS
+# ============================================================
+
+def build_started_news(match):
+
+    home = match["home_team_name"]
+
+    away = match["away_team_name"]
+
+    competition = match["competition_name"]
+
+
+    title = (
+        f"🟢 انطلاق المباراة | "
+        f"{home} × {away}"
+    )
+
+
+    content = (
+        f"🟢 انطلاق المباراة الآن\n\n"
+
+        f"🏆 {competition}\n\n"
+
+        f"{home} 0️⃣ - 0️⃣ {away}\n\n"
+
+        f"⚽ بدأت المباراة "
+        f"والنتيجة حتى الآن 0-0."
+    )
+
+
+    return title, content
+
+
+# ============================================================
+# BUILD FINISHED NEWS
+# ============================================================
+
+def build_finished_news(match):
+
+    home = match["home_team_name"]
+
+    away = match["away_team_name"]
+
+    competition = match["competition_name"]
+
+    home_score = match["home_score"]
+
+    away_score = match["away_score"]
+
+
+    title = (
+        f"🏁 نهاية المباراة | "
+        f"{home} {home_score} - "
+        f"{away_score} {away}"
+    )
+
+
+    content = (
+        f"🏁 نهاية المباراة\n\n"
+
+        f"🏆 {competition}\n\n"
+
+        f"⚽ {home} "
+        f"{home_score} - "
+        f"{away_score} {away}\n\n"
+
+        f"📊 النتيجة النهائية: "
+        f"{home_score} - {away_score}"
+    )
+
+
+    return title, content
+
+
+# ============================================================
+# PROCESS MATCH
+# ============================================================
+
+def process_match(match):
+
+    status = match["status"]
+
+    # --------------------------------------------------------
+    # MATCH FINISHED
+    # --------------------------------------------------------
+
+    if status == "FINISHED":
+
+        news_type = "MATCH_FINISHED"
+
+        title, content = build_finished_news(
+            match
+        )
+
+
+    # --------------------------------------------------------
+    # MATCH STARTED
+    # --------------------------------------------------------
+
+    elif status in [
+        "IN_PLAY",
+        "PAUSED"
+    ]:
+
+        news_type = "MATCH_STARTED"
+
+        title, content = build_started_news(
+            match
+        )
+
+
+    # --------------------------------------------------------
+    # MATCH SCHEDULED
+    # --------------------------------------------------------
+
+    elif status in [
+        "TIMED",
+        "SCHEDULED"
+    ]:
+
+        news_type = "MATCH_SCHEDULED"
+
+        title, content = build_scheduled_news(
+            match
+        )
+
+
+    else:
+
+        print(
+            f"Skipping status: {status}"
+        )
+
+        return False
+
+
+    # --------------------------------------------------------
+    # CREATE NEWS
+    # --------------------------------------------------------
+
+    news = create_news(
+
+        match,
+
+        news_type,
+
+        title,
+
+        content
+    )
+
+
+    if not news:
+
+        return False
+
+
+    print(
+        f"News created: {news['id']}"
+    )
+
+
+    # --------------------------------------------------------
+    # SEND
+    # --------------------------------------------------------
+
+    try:
+
+        telegram_message_id = send_telegram(
+            content
+        )
+
+
+        mark_news_as_sent(
+
+            news["id"],
+
+            telegram_message_id
+
+        )
+
+
+        print(
+            "Telegram: SENT ✅"
+        )
+
+
+        return True
+
+
+    except Exception as error:
+
+        print(
+            "Telegram: FAILED ❌"
+        )
+
+        print(error)
+
+        return False
 
 
 # ============================================================
@@ -427,106 +652,54 @@ def main():
     check_environment()
 
 
-    # --------------------------------------------------------
-    # Get finished matches
-    # --------------------------------------------------------
-
-    matches = get_finished_matches()
+    now, today, tomorrow = get_dates()
 
 
     print(
-        f"Finished matches found: "
-        f"{len(matches)}"
+        f"Now      : {now.strftime('%Y-%m-%d %H:%M:%S')}"
+    )
+
+    print(
+        f"Today    : {today}"
+    )
+
+    print(
+        f"Tomorrow : {tomorrow}"
+    )
+
+
+    matches = get_target_matches()
+
+
+    print(
+        f"Matches found: {len(matches)}"
     )
 
 
     created = 0
 
-    sent = 0
-
-
-    # --------------------------------------------------------
-    # Process matches
-    # --------------------------------------------------------
 
     for match in matches:
 
         print("")
 
+        print("-" * 70)
+
         print(
-            f"Match {match['id']}: "
             f"{match['home_team_name']} "
-            f"{match['home_score']} - "
-            f"{match['away_score']} "
+            f"vs "
             f"{match['away_team_name']}"
         )
 
-
-        # ----------------------------------------------------
-        # Create news
-        # ----------------------------------------------------
-
-        news = create_news(
-            match
-        )
-
-
-        if not news:
-
-            continue
-
-
-        created += 1
-
-
         print(
-            f"News created: "
-            f"{news['id']}"
+            f"Status: {match['status']}"
         )
 
 
-        # ----------------------------------------------------
-        # Send Telegram
-        # ----------------------------------------------------
+        if process_match(match):
 
-        try:
+            created += 1
 
-            telegram_message_id = (
-                send_telegram(
-                    news["content"]
-                )
-            )
-
-
-            mark_news_as_sent(
-
-                news["id"],
-
-                telegram_message_id
-
-            )
-
-
-            sent += 1
-
-
-            print(
-                "Telegram: SENT ✅"
-            )
-
-
-        except Exception as error:
-
-            print(
-                "Telegram: FAILED ❌"
-            )
-
-            print(error)
-
-
-    # --------------------------------------------------------
-    # Summary
-    # --------------------------------------------------------
 
     print("")
 
@@ -537,18 +710,11 @@ def main():
     print("=" * 70)
 
     print(
-        f"Finished matches: "
-        f"{len(matches)}"
+        f"Matches checked : {len(matches)}"
     )
 
     print(
-        f"News created   : "
-        f"{created}"
-    )
-
-    print(
-        f"Telegram sent  : "
-        f"{sent}"
+        f"News created    : {created}"
     )
 
     print("=" * 70)
