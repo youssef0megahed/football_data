@@ -10,13 +10,12 @@ from zoneinfo import ZoneInfo
 # ============================================================
 
 FOOTBALL_DATA_TOKEN = os.getenv("FOOTBALL_DATA_TOKEN")
-
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
 TIMEZONE = ZoneInfo("Africa/Cairo")
 
-BASE_URL = "https://api.football-data.org/v4/competitions"
+FOOTBALL_BASE_URL = "https://api.football-data.org/v4/competitions"
 
 COMPETITIONS = {
     "Premier League": {
@@ -54,7 +53,7 @@ SUPABASE_HEADERS = {
     "apikey": SUPABASE_KEY,
     "Authorization": f"Bearer {SUPABASE_KEY}",
     "Content-Type": "application/json",
-    "Prefer": "resolution=merge-duplicates"
+    "Prefer": "resolution=merge-duplicates,return=minimal"
 }
 
 
@@ -73,12 +72,12 @@ def get_current_season():
 
 
 # ============================================================
-# GET COMPETITION MATCHES
+# GET SEASON MATCHES
 # ============================================================
 
 def get_competition_matches(competition_code, season):
 
-    url = f"{BASE_URL}/{competition_code}/matches"
+    url = f"{FOOTBALL_BASE_URL}/{competition_code}/matches"
 
     params = {
         "season": season
@@ -97,13 +96,11 @@ def get_competition_matches(competition_code, season):
             f"{response.status_code}: {response.text}"
         )
 
-    data = response.json()
-
-    return data.get("matches", [])
+    return response.json().get("matches", [])
 
 
 # ============================================================
-# CONVERT UTC TO CAIRO
+# UTC → CAIRO
 # ============================================================
 
 def convert_to_cairo(utc_date):
@@ -116,7 +113,7 @@ def convert_to_cairo(utc_date):
 
 
 # ============================================================
-# GET COMPETITION ID FROM SUPABASE
+# GET COMPETITION ID
 # ============================================================
 
 def get_competition_id(competition_code):
@@ -125,7 +122,7 @@ def get_competition_id(competition_code):
 
     params = {
         "code": f"eq.{competition_code}",
-        "select": "id,name,code,country,source"
+        "select": "id"
     }
 
     response = requests.get(
@@ -134,13 +131,6 @@ def get_competition_id(competition_code):
         params=params,
         timeout=30
     )
-
-    print("")
-    print("SUPABASE DEBUG")
-    print("URL:", url)
-    print("Status:", response.status_code)
-    print("Response:", response.text)
-    print("")
 
     if response.status_code != 200:
         raise Exception(
@@ -158,11 +148,17 @@ def get_competition_id(competition_code):
 
     return data[0]["id"]
 
+
 # ============================================================
-# CONVERT MATCH TO DATABASE RECORD
+# PREPARE MATCH
 # ============================================================
 
-def prepare_match(match, competition_id, competition_name, season):
+def prepare_match(
+    match,
+    competition_id,
+    competition_name,
+    season
+):
 
     kickoff_utc = match["utcDate"]
 
@@ -210,32 +206,39 @@ def prepare_match(match, competition_id, competition_name, season):
 
         "venue": match.get("venue"),
 
-        "last_updated_at": match.get("lastUpdated"),
+        "last_updated_at": match.get("lastUpdated")
     }
 
 
 # ============================================================
-# UPSERT MATCHES INTO SUPABASE
+# UPSERT MATCHES
 # ============================================================
 
-def save_matches(matches):
+def upsert_matches(matches):
 
     if not matches:
         return 0
 
     url = f"{SUPABASE_URL}/rest/v1/matches"
 
+    params = {
+        "on_conflict": "source,source_match_id"
+    }
+
     response = requests.post(
         url,
         headers=SUPABASE_HEADERS,
+        params=params,
         json=matches,
         timeout=30
     )
 
     if response.status_code not in [200, 201]:
+
         raise Exception(
-            f"Supabase insert failed "
-            f"{response.status_code}: {response.text}"
+            f"Supabase upsert failed "
+            f"{response.status_code}: "
+            f"{response.text}"
         )
 
     return len(matches)
@@ -266,7 +269,15 @@ def main():
 
     today = now.date()
 
+    yesterday = today - timedelta(days=1)
+
     tomorrow = today + timedelta(days=1)
+
+    target_dates = {
+        yesterday,
+        today,
+        tomorrow
+    }
 
     season = get_current_season()
 
@@ -274,17 +285,16 @@ def main():
     print("FOOTBALL DATA PIPELINE")
     print("=" * 70)
 
-    print(f"Timezone : Africa/Cairo")
-    print(f"Today    : {today}")
-    print(f"Tomorrow : {tomorrow}")
-    print(f"Season   : {season}")
+    print(f"Timezone  : Africa/Cairo")
+    print(f"Yesterday : {yesterday}")
+    print(f"Today     : {today}")
+    print(f"Tomorrow  : {tomorrow}")
+    print(f"Season    : {season}")
 
-    total_matches = 0
-    total_today = 0
-    total_tomorrow = 0
+    total_processed = 0
 
     # ========================================================
-    # PROCESS FIVE LEAGUES
+    # FIVE LEAGUES
     # ========================================================
 
     for league_name, league_info in COMPETITIONS.items():
@@ -299,7 +309,7 @@ def main():
         try:
 
             # ------------------------------------------------
-            # Get Supabase competition ID
+            # Supabase competition
             # ------------------------------------------------
 
             competition_id = get_competition_id(
@@ -312,7 +322,7 @@ def main():
             )
 
             # ------------------------------------------------
-            # Get season matches
+            # Football API
             # ------------------------------------------------
 
             matches = get_competition_matches(
@@ -325,13 +335,14 @@ def main():
                 f"{len(matches)}"
             )
 
-            database_records = []
+            matches_to_update = []
 
+            yesterday_count = 0
             today_count = 0
             tomorrow_count = 0
 
             # ------------------------------------------------
-            # Process matches
+            # Filter yesterday / today / tomorrow
             # ------------------------------------------------
 
             for match in matches:
@@ -342,11 +353,7 @@ def main():
 
                 match_date = cairo_datetime.date()
 
-                # --------------------------------------------
-                # We currently collect only today/tomorrow
-                # --------------------------------------------
-
-                if match_date not in [today, tomorrow]:
+                if match_date not in target_dates:
                     continue
 
                 record = prepare_match(
@@ -356,55 +363,52 @@ def main():
                     season
                 )
 
-                database_records.append(record)
+                matches_to_update.append(record)
 
-                if match_date == today:
+                if match_date == yesterday:
+                    yesterday_count += 1
+
+                elif match_date == today:
                     today_count += 1
 
                 elif match_date == tomorrow:
                     tomorrow_count += 1
 
             # ------------------------------------------------
-            # Save to Supabase
+            # UPSERT
             # ------------------------------------------------
 
-            saved = save_matches(
-                database_records
+            saved = upsert_matches(
+                matches_to_update
             )
 
-            total_matches += saved
+            total_processed += saved
 
-            total_today += today_count
-
-            total_tomorrow += tomorrow_count
-
+            print("")
             print(
-                f"Today: {today_count}"
+                f"Yesterday : {yesterday_count}"
             )
 
             print(
-                f"Tomorrow: {tomorrow_count}"
+                f"Today     : {today_count}"
             )
 
             print(
-                f"Saved to Supabase: {saved}"
+                f"Tomorrow  : {tomorrow_count}"
+            )
+
+            print(
+                f"Upserted  : {saved}"
             )
 
         except Exception as error:
 
             print("")
-            print(
-                f"❌ ERROR in {league_name}:"
-            )
-
-            print(error)
-
-            print(
-                "Continuing with next league..."
-            )
+            print(f"❌ ERROR: {error}")
+            print("Continuing with next league...")
 
     # ========================================================
-    # FINAL SUMMARY
+    # SUMMARY
     # ========================================================
 
     print("")
@@ -413,23 +417,13 @@ def main():
     print("=" * 70)
 
     print(
-        f"Today matches    : "
-        f"{total_today}"
-    )
-
-    print(
-        f"Tomorrow matches : "
-        f"{total_tomorrow}"
-    )
-
-    print(
-        f"Total saved      : "
-        f"{total_matches}"
+        f"Total records processed: "
+        f"{total_processed}"
     )
 
     print("")
     print("Football API requests: 5")
-
+    print("Database mode: UPSERT")
     print("Status: SUCCESS")
 
     print("=" * 70)
