@@ -574,6 +574,10 @@ def prepare_article(
         "news_type":
             "EXTERNAL",
 
+        "title": title,
+        
+        "content": description, 
+        
         "source":
             get_source(article),
 
