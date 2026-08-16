@@ -1,0 +1,28 @@
+name: Test TheSportsDB
+
+on:
+  workflow_dispatch:
+
+jobs:
+
+  test-thesportsdb:
+
+    runs-on: ubuntu-latest
+
+    steps:
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install requests
+        run: |
+          pip install requests
+
+      - name: Test TheSportsDB
+        run: |
+          python src/test_thesportsdb.py
