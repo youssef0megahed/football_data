@@ -2,7 +2,7 @@ import os
 import re
 import requests
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 
 # ============================================================
@@ -14,76 +14,79 @@ THE_NEWS_API_KEY = os.getenv("THE_NEWS_API_KEY")
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
-NEWS_API_URL = "https://api.thenewsapi.com/v1/news/all"
+NEWS_API_URL = "https://www.thenewsapi.com/v1/news/all"
 
 SOURCE_NAME = "The News API"
 
 REQUEST_TIMEOUT = 30
 
-# عدد المقالات المطلوبة في كل طلب
+# عدد الأخبار المطلوبة من كل Query
 ARTICLES_PER_QUERY = 10
 
 
 # ============================================================
-# FOOTBALL SEARCH QUERIES
+# NEWS QUERIES
 # ============================================================
 
 NEWS_QUERIES = {
 
-    # --------------------------------------------------------
-    # Premier League
-    # --------------------------------------------------------
+    # ========================================================
+    # PREMIER LEAGUE
+    # ========================================================
 
     "Premier League":
-        '"Premier League" | Arsenal | Liverpool | "Manchester City" | '
-        '"Manchester United" | Chelsea | Tottenham | Newcastle',
+        '"Premier League" | Arsenal | Liverpool | '
+        '"Manchester City" | "Manchester United" | '
+        'Chelsea | Tottenham | Newcastle',
 
-    # --------------------------------------------------------
-    # La Liga
-    # --------------------------------------------------------
+    # ========================================================
+    # LA LIGA
+    # ========================================================
 
     "La Liga":
-        '"La Liga" | "Real Madrid" | Barcelona | "Atletico Madrid" | '
-        'Sevilla | Villarreal',
+        '"La Liga" | "Real Madrid" | Barcelona | '
+        '"Atletico Madrid" | Sevilla | Villarreal',
 
-    # --------------------------------------------------------
-    # Serie A
-    # --------------------------------------------------------
+    # ========================================================
+    # SERIE A
+    # ========================================================
 
     "Serie A":
-        '"Serie A" | "Inter Milan" | "AC Milan" | Juventus | Napoli | '
-        'Roma | Lazio | Atalanta',
+        '"Serie A" | "Inter Milan" | "AC Milan" | '
+        'Juventus | Napoli | Roma | Lazio | Atalanta',
 
-    # --------------------------------------------------------
-    # Bundesliga
-    # --------------------------------------------------------
+    # ========================================================
+    # BUNDESLIGA
+    # ========================================================
 
     "Bundesliga":
-        'Bundesliga | "Bayern Munich" | "Borussia Dortmund" | '
-        '"Bayer Leverkusen" | "RB Leipzig" | Stuttgart',
+        'Bundesliga | "Bayern Munich" | '
+        '"Borussia Dortmund" | "Bayer Leverkusen" | '
+        '"RB Leipzig" | Stuttgart',
 
-    # --------------------------------------------------------
-    # Ligue 1
-    # --------------------------------------------------------
+    # ========================================================
+    # LIGUE 1
+    # ========================================================
 
     "Ligue 1":
-        '"Ligue 1" | PSG | "Paris Saint-Germain" | Marseille | Lyon | '
-        'Monaco | Lille | Nice',
+        '"Ligue 1" | PSG | "Paris Saint-Germain" | '
+        'Marseille | Lyon | Monaco | Lille | Nice',
 
-    # --------------------------------------------------------
-    # Champions League
-    # --------------------------------------------------------
+    # ========================================================
+    # CHAMPIONS LEAGUE
+    # ========================================================
 
     "Champions League":
         '"Champions League" | "UEFA Champions League"',
 
-    # --------------------------------------------------------
-    # Transfers
-    # --------------------------------------------------------
+    # ========================================================
+    # TRANSFERS
+    # ========================================================
 
     "Transfers":
-        '"football transfer" | "transfer news" | "transfer market" | '
-        '"transfer rumour" | "transfer rumours"',
+        '"football transfer" | "transfer news" | '
+        '"transfer market" | "transfer rumour" | '
+        '"transfer rumours"',
 }
 
 
@@ -91,45 +94,13 @@ NEWS_QUERIES = {
 # SUPABASE HEADERS
 # ============================================================
 
-SUPABASE_HEADERS = {
-    "apikey": SUPABASE_KEY,
-    "Authorization": f"Bearer {SUPABASE_KEY}",
-    "Content-Type": "application/json",
-    "Prefer": "return=minimal",
-}
+def get_supabase_headers():
 
-
-# ============================================================
-# LOAD TEAMS
-# ============================================================
-
-def load_teams():
-
-    url = f"{SUPABASE_URL}/rest/v1/teams"
-
-    params = {
-        "select": "id,source_team_id,name,short_name,tla"
+    return {
+        "apikey": SUPABASE_KEY,
+        "Authorization": f"Bearer {SUPABASE_KEY}",
+        "Content-Type": "application/json",
     }
-
-    response = requests.get(
-        url,
-        headers=SUPABASE_HEADERS,
-        params=params,
-        timeout=REQUEST_TIMEOUT
-    )
-
-    if response.status_code != 200:
-
-        raise Exception(
-            f"Failed to load teams "
-            f"{response.status_code}: {response.text}"
-        )
-
-    teams = response.json()
-
-    print(f"Teams loaded: {len(teams)}")
-
-    return teams
 
 
 # ============================================================
@@ -138,10 +109,10 @@ def load_teams():
 
 def normalize_text(text):
 
-    if not text:
+    if text is None:
         return ""
 
-    text = text.lower()
+    text = str(text).lower()
 
     text = re.sub(
         r"[^a-z0-9\s]",
@@ -159,7 +130,52 @@ def normalize_text(text):
 
 
 # ============================================================
-# BUILD TEAM SEARCH INDEX
+# LOAD TEAMS
+# ============================================================
+
+def load_teams():
+
+    url = (
+        f"{SUPABASE_URL}/rest/v1/teams"
+    )
+
+    params = {
+        "select": "id,source_team_id,name,short_name,tla"
+    }
+
+    response = requests.get(
+        url,
+        headers=get_supabase_headers(),
+        params=params,
+        timeout=REQUEST_TIMEOUT
+    )
+
+    if response.status_code != 200:
+
+        raise Exception(
+            "Failed to load teams "
+            f"{response.status_code}: "
+            f"{response.text}"
+        )
+
+    data = response.json()
+
+    if not isinstance(data, list):
+
+        raise Exception(
+            "Supabase teams response "
+            "is not a list."
+        )
+
+    print(
+        f"Teams loaded: {len(data)}"
+    )
+
+    return data
+
+
+# ============================================================
+# BUILD TEAM INDEX
 # ============================================================
 
 def build_team_index(teams):
@@ -167,6 +183,9 @@ def build_team_index(teams):
     index = []
 
     for team in teams:
+
+        if not isinstance(team, dict):
+            continue
 
         names = []
 
@@ -176,16 +195,41 @@ def build_team_index(teams):
             team.get("tla")
         ]:
 
-            if field:
-                names.append(
-                    normalize_text(field)
-                )
+            if not field:
+                continue
+
+            normalized = normalize_text(
+                field
+            )
+
+            if (
+                normalized
+                and len(normalized) >= 3
+            ):
+
+                names.append(normalized)
+
+        if not names:
+            continue
 
         index.append({
+
             "db_id": team.get("id"),
-            "source_team_id": team.get("source_team_id"),
-            "name": team.get("name"),
-            "names": names
+
+            "source_team_id":
+                team.get("source_team_id"),
+
+            "name":
+                team.get("name"),
+
+            "short_name":
+                team.get("short_name"),
+
+            "tla":
+                team.get("tla"),
+
+            "names":
+                names,
         })
 
     return index
@@ -197,23 +241,40 @@ def build_team_index(teams):
 
 def find_team(text, team_index):
 
-    normalized = normalize_text(text)
+    normalized = normalize_text(
+        text
+    )
 
     if not normalized:
         return None
 
-    for team in team_index:
+    # الأطول أولًا لتجنب مطابقة اسم قصير
+    # قبل الاسم الكامل
+    sorted_teams = sorted(
+        team_index,
+        key=lambda x: max(
+            [
+                len(name)
+                for name in x["names"]
+            ],
+            default=0
+        ),
+        reverse=True
+    )
+
+    for team in sorted_teams:
 
         for name in team["names"]:
 
             if not name:
                 continue
 
-            if len(name) < 3:
-                continue
+            pattern = (
+                rf"\b{re.escape(name)}\b"
+            )
 
             if re.search(
-                rf"\b{re.escape(name)}\b",
+                pattern,
                 normalized
             ):
 
@@ -236,7 +297,10 @@ def classify_article(
         f"{title} {description}"
     )
 
-    # Transfers
+    # --------------------------------------------------------
+    # TRANSFERS
+    # --------------------------------------------------------
+
     transfer_words = [
         "transfer",
         "transfers",
@@ -246,7 +310,8 @@ def classify_article(
         "transfer rumours",
         "signing",
         "signs",
-        "joins"
+        "joins",
+        "deal",
     ]
 
     for word in transfer_words:
@@ -255,14 +320,18 @@ def classify_article(
 
             return "transfers"
 
-    # Injuries
+    # --------------------------------------------------------
+    # INJURIES
+    # --------------------------------------------------------
+
     injury_words = [
         "injury",
         "injured",
         "injuries",
         "fitness",
         "hamstring",
-        "knee injury"
+        "knee injury",
+        "ankle injury",
     ]
 
     for word in injury_words:
@@ -271,12 +340,17 @@ def classify_article(
 
             return "injury"
 
-    # Manager
+    # --------------------------------------------------------
+    # MANAGER
+    # --------------------------------------------------------
+
     manager_words = [
         "manager",
         "coach",
         "head coach",
-        "managerial"
+        "managerial",
+        "manager sacking",
+        "manager sacked",
     ]
 
     for word in manager_words:
@@ -285,11 +359,14 @@ def classify_article(
 
             return "manager"
 
-    # Fantasy
+    # --------------------------------------------------------
+    # FANTASY
+    # --------------------------------------------------------
+
     fantasy_words = [
         "fantasy",
         "fpl",
-        "fantasy premier league"
+        "fantasy premier league",
     ]
 
     for word in fantasy_words:
@@ -298,7 +375,10 @@ def classify_article(
 
             return "fantasy"
 
-    # Champions League
+    # --------------------------------------------------------
+    # CHAMPIONS LEAGUE
+    # --------------------------------------------------------
+
     if (
         "champions league" in text
         or "uefa champions league" in text
@@ -306,89 +386,15 @@ def classify_article(
 
         return "champions_league"
 
-    # Otherwise use query
-    return query_category.lower().replace(
-        " ",
-        "_"
+    # --------------------------------------------------------
+    # GENERAL
+    # --------------------------------------------------------
+
+    return (
+        query_category
+        .lower()
+        .replace(" ", "_")
     )
-
-
-# ============================================================
-# FETCH NEWS
-# ============================================================
-
-def fetch_news(query):
-
-    params = {
-        "api_token": THE_NEWS_API_KEY,
-
-        "search": query,
-
-        "search_fields": "title,description,keywords",
-
-        "categories": "sports",
-
-        "language": "en",
-
-        "limit": ARTICLES_PER_QUERY,
-
-        "page": 1,
-
-        "sort": "published_at"
-    }
-
-    response = requests.get(
-        NEWS_API_URL,
-        params=params,
-        timeout=REQUEST_TIMEOUT
-    )
-
-    if response.status_code != 200:
-
-        raise Exception(
-            f"The News API error "
-            f"{response.status_code}: "
-            f"{response.text}"
-        )
-
-    data = response.json()
-
-    return data.get("data", [])
-
-
-# ============================================================
-# CHECK EXISTING ARTICLE
-# ============================================================
-
-def article_exists(source_url):
-
-    if not source_url:
-        return False
-
-    url = f"{SUPABASE_URL}/rest/v1/news"
-
-    params = {
-        "source_url": f"eq.{source_url}",
-        "select": "id",
-        "limit": 1
-    }
-
-    response = requests.get(
-        url,
-        headers=SUPABASE_HEADERS,
-        params=params,
-        timeout=REQUEST_TIMEOUT
-    )
-
-    if response.status_code != 200:
-
-        raise Exception(
-            f"Supabase duplicate check failed "
-            f"{response.status_code}: "
-            f"{response.text}"
-        )
-
-    return len(response.json()) > 0
 
 
 # ============================================================
@@ -402,21 +408,219 @@ def parse_published_at(value):
 
     try:
 
-        # Example:
-        # 2026-08-16T12:30:00Z
+        value = str(value)
 
-        return datetime.fromisoformat(
-            value.replace(
-                "Z",
-                "+00:00"
+        if value.endswith("Z"):
+
+            value = value[:-1] + "+00:00"
+
+        parsed = datetime.fromisoformat(
+            value
+        )
+
+        if parsed.tzinfo is None:
+
+            parsed = parsed.replace(
+                tzinfo=timezone.utc
             )
-        ).astimezone(
+
+        return parsed.astimezone(
             timezone.utc
         ).isoformat()
 
     except Exception:
 
         return None
+
+
+# ============================================================
+# FETCH NEWS
+# ============================================================
+
+def fetch_news(query):
+
+    params = {
+
+        "api_token":
+            THE_NEWS_API_KEY,
+
+        "search":
+            query,
+
+        "search_fields":
+            "title,description,keywords",
+
+        "categories":
+            "sports",
+
+        "language":
+            "en",
+
+        "limit":
+            ARTICLES_PER_QUERY,
+
+        "page":
+            1,
+
+        "sort":
+            "published_at",
+    }
+
+    response = requests.get(
+        NEWS_API_URL,
+        params=params,
+        timeout=REQUEST_TIMEOUT
+    )
+
+    if response.status_code != 200:
+
+        raise Exception(
+            "The News API error "
+            f"{response.status_code}: "
+            f"{response.text}"
+        )
+
+    data = response.json()
+
+    if not isinstance(data, dict):
+
+        raise Exception(
+            "The News API response "
+            "is not an object."
+        )
+
+    articles = data.get(
+        "data",
+        []
+    )
+
+    if not isinstance(
+        articles,
+        list
+    ):
+
+        return []
+
+    return articles
+
+
+# ============================================================
+# CHECK DUPLICATE
+# ============================================================
+
+def article_exists(source_url):
+
+    if not source_url:
+        return False
+
+    url = (
+        f"{SUPABASE_URL}/rest/v1/news"
+    )
+
+    params = {
+
+        "source_url":
+            f"eq.{source_url}",
+
+        "select":
+            "id",
+
+        "limit":
+            "1",
+    }
+
+    response = requests.get(
+        url,
+        headers=get_supabase_headers(),
+        params=params,
+        timeout=REQUEST_TIMEOUT
+    )
+
+    if response.status_code != 200:
+
+        raise Exception(
+            "Supabase duplicate check "
+            f"failed {response.status_code}: "
+            f"{response.text}"
+        )
+
+    result = response.json()
+
+    return (
+        isinstance(result, list)
+        and len(result) > 0
+    )
+
+
+# ============================================================
+# GET SOURCE NAME
+# ============================================================
+
+def get_source_name(article):
+
+    source_data = article.get(
+        "source"
+    )
+
+    # --------------------------------------------------------
+    # source = dictionary
+    # --------------------------------------------------------
+
+    if isinstance(
+        source_data,
+        dict
+    ):
+
+        return (
+            source_data.get("name")
+            or source_data.get("title")
+            or SOURCE_NAME
+        )
+
+    # --------------------------------------------------------
+    # source = string
+    # --------------------------------------------------------
+
+    if isinstance(
+        source_data,
+        str
+    ):
+
+        source_name = (
+            source_data.strip()
+        )
+
+        if source_name:
+
+            return source_name
+
+    # --------------------------------------------------------
+    # fallback
+    # --------------------------------------------------------
+
+    return SOURCE_NAME
+
+
+# ============================================================
+# GET IMAGE
+# ============================================================
+
+def get_image_url(article):
+
+    image = (
+        article.get("image_url")
+        or article.get("image")
+        or article.get("imageUrl")
+    )
+
+    if image is None:
+        return None
+
+    image = str(
+        image
+    ).strip()
+
+    return image or None
 
 
 # ============================================================
@@ -429,6 +633,17 @@ def prepare_article(
     team_index
 ):
 
+    if not isinstance(
+        article,
+        dict
+    ):
+
+        return None
+
+    # --------------------------------------------------------
+    # Basic data
+    # --------------------------------------------------------
+
     title = (
         article.get("title")
         or ""
@@ -439,21 +654,34 @@ def prepare_article(
         or ""
     ).strip()
 
-    url = (
+    source_url = (
         article.get("url")
         or ""
     ).strip()
 
-    uuid = (
+    if not title:
+        return None
+
+    if not source_url:
+        return None
+
+    # --------------------------------------------------------
+    # Article ID
+    # --------------------------------------------------------
+
+    article_id = (
         article.get("uuid")
         or article.get("id")
     )
 
-    if not title or not url:
-        return None
+    if article_id is not None:
+
+        article_id = str(
+            article_id
+        )
 
     # --------------------------------------------------------
-    # Find team
+    # Team matching
     # --------------------------------------------------------
 
     combined_text = (
@@ -470,14 +698,24 @@ def prepare_article(
 
     if team:
 
-        team_id = str(
-            team["source_team_id"]
+        source_team_id = (
+            team.get(
+                "source_team_id"
+            )
         )
 
-        team_name = team["name"]
+        if source_team_id is not None:
+
+            team_id = str(
+                source_team_id
+            )
+
+        team_name = team.get(
+            "name"
+        )
 
     # --------------------------------------------------------
-    # Classification
+    # Category
     # --------------------------------------------------------
 
     category = classify_article(
@@ -487,29 +725,40 @@ def prepare_article(
     )
 
     # --------------------------------------------------------
+    # League
+    # --------------------------------------------------------
+
+    league = None
+
+    if query_category in [
+        "Premier League",
+        "La Liga",
+        "Serie A",
+        "Bundesliga",
+        "Ligue 1",
+        "Champions League",
+    ]:
+
+        league = query_category
+
+    # --------------------------------------------------------
     # Source
     # --------------------------------------------------------
 
-    source_data = article.get(
-        "source"
-    ) or {}
-
-    source_name = (
-        source_data.get("name")
-        or SOURCE_NAME
+    source_name = get_source_name(
+        article
     )
 
     # --------------------------------------------------------
     # Image
     # --------------------------------------------------------
 
-    image_url = (
-        article.get("image_url")
-        or article.get("image")
+    image_url = get_image_url(
+        article
     )
 
     # --------------------------------------------------------
-    # Published
+    # Date
     # --------------------------------------------------------
 
     published_at = parse_published_at(
@@ -522,58 +771,76 @@ def prepare_article(
 
     return {
 
-        "source": source_name,
+        "news_type":
+            "EXTERNAL",
 
-        "source_url": url,
+        "source":
+            source_name,
 
-        "source_article_id": (
-            str(uuid)
-            if uuid
-            else None
-        ),
+        "source_url":
+            source_url,
 
-        "title_original": title,
+        "source_article_id":
+            article_id,
 
-        "summary_original": description,
+        "title_original":
+            title,
 
-        "image_url": image_url,
+        "summary_original":
+            description,
 
-        "published_at": published_at,
+        "title_ar":
+            None,
 
-        "collected_at": datetime.now(
-            timezone.utc
-        ).isoformat(),
+        "summary_ar":
+            None,
 
-        "category": category,
+        "image_url":
+            image_url,
 
-        "league": (
-            query_category
-            if query_category
-            in [
-                "Premier League",
-                "La Liga",
-                "Serie A",
-                "Bundesliga",
-                "Ligue 1"
-            ]
-            else None
-        ),
+        "category":
+            category,
 
-        "team_id": team_id,
+        "league":
+            league,
 
-        "team_name": team_name,
+        "team_id":
+            team_id,
 
-        "player_name": None,
+        "team_name":
+            team_name,
 
-        "news_type": "EXTERNAL",
+        "player_name":
+            None,
 
-        "status": "NEW",
+        "published_at":
+            published_at,
 
-        "telegram_sent": False,
+        "collected_at":
+            datetime.now(
+                timezone.utc
+            ).isoformat(),
 
-        "facebook_sent": False,
+        "status":
+            "NEW",
 
-        "ai_processed": False
+        "telegram_sent":
+            False,
+
+        "telegram_sent_at":
+            None,
+
+        "facebook_sent":
+            False,
+
+        "facebook_sent_at":
+            None,
+
+        "ai_processed":
+            False,
+
+        "ai_processed_at":
+            None,
     }
 
 
@@ -583,17 +850,21 @@ def prepare_article(
 
 def save_article(article):
 
-    url = f"{SUPABASE_URL}/rest/v1/news"
+    url = (
+        f"{SUPABASE_URL}/rest/v1/news"
+    )
+
+    headers = {
+        **get_supabase_headers(),
+
+        "Prefer":
+            "resolution=ignore-duplicates,"
+            "return=minimal",
+    }
 
     response = requests.post(
         url,
-        headers={
-            **SUPABASE_HEADERS,
-            "Prefer": (
-                "resolution=ignore-duplicates,"
-                "return=minimal"
-            )
-        },
+        headers=headers,
         json=article,
         timeout=REQUEST_TIMEOUT
     )
@@ -601,11 +872,11 @@ def save_article(article):
     if response.status_code not in [
         200,
         201,
-        204
+        204,
     ]:
 
         raise Exception(
-            f"Supabase news insert failed "
+            "Supabase insert failed "
             f"{response.status_code}: "
             f"{response.text}"
         )
@@ -628,11 +899,32 @@ def process_query(
         f"Query: {query_category}"
     )
 
-    articles = fetch_news(query)
+    try:
+
+        articles = fetch_news(
+            query
+        )
+
+    except Exception as error:
+
+        print(
+            f"❌ API ERROR: {error}"
+        )
+
+        return {
+            "received": 0,
+            "saved": 0,
+            "duplicates": 0,
+            "invalid": 0,
+        }
 
     print(
         f"Articles received: "
         f"{len(articles)}"
+    )
+
+    received = len(
+        articles
     )
 
     saved = 0
@@ -641,57 +933,113 @@ def process_query(
 
     for article in articles:
 
-        source_url = (
-            article.get("url")
-            or ""
-        ).strip()
+        try:
 
-        if not source_url:
+            if not isinstance(
+                article,
+                dict
+            ):
+
+                invalid += 1
+
+                continue
+
+            source_url = (
+                article.get("url")
+                or ""
+            ).strip()
+
+            if not source_url:
+
+                invalid += 1
+
+                continue
+
+            # ------------------------------------------------
+            # Duplicate
+            # ------------------------------------------------
+
+            if article_exists(
+                source_url
+            ):
+
+                duplicates += 1
+
+                print(
+                    f"⏭️ Duplicate: "
+                    f"{article.get('title', '')}"
+                )
+
+                continue
+
+            # ------------------------------------------------
+            # Prepare
+            # ------------------------------------------------
+
+            record = prepare_article(
+                article,
+                query_category,
+                team_index
+            )
+
+            if not record:
+
+                invalid += 1
+
+                continue
+
+            # ------------------------------------------------
+            # Save
+            # ------------------------------------------------
+
+            save_article(
+                record
+            )
+
+            saved += 1
+
+            team_label = (
+                record.get(
+                    "team_name"
+                )
+                or "-"
+            )
+
+            print(
+                f"✅ Saved: "
+                f"{record['title_original']}"
+            )
+
+            print(
+                f"   Source: "
+                f"{record['source']}"
+            )
+
+            print(
+                f"   Category: "
+                f"{record['category']}"
+            )
+
+            print(
+                f"   Team: "
+                f"{team_label}"
+            )
+
+        except Exception as error:
 
             invalid += 1
 
-            continue
-
-        # ----------------------------------------------------
-        # Duplicate
-        # ----------------------------------------------------
-
-        if article_exists(
-            source_url
-        ):
-
-            duplicates += 1
+            print(
+                f"❌ Article error: "
+                f"{error}"
+            )
 
             continue
 
-        # ----------------------------------------------------
-        # Prepare
-        # ----------------------------------------------------
-
-        record = prepare_article(
-            article,
-            query_category,
-            team_index
-        )
-
-        if not record:
-
-            invalid += 1
-
-            continue
-
-        # ----------------------------------------------------
-        # Save
-        # ----------------------------------------------------
-
-        save_article(record)
-
-        saved += 1
-
-        print(
-            f"✅ Saved: "
-            f"{record['title_original']}"
-        )
+    print("")
+    print(
+        f"Received   : {received}"
+    )
 
     print(
         f"Saved      : {saved}"
@@ -705,7 +1053,12 @@ def process_query(
         f"Invalid    : {invalid}"
     )
 
-    return saved
+    return {
+        "received": received,
+        "saved": saved,
+        "duplicates": duplicates,
+        "invalid": invalid,
+    }
 
 
 # ============================================================
@@ -718,28 +1071,6 @@ def main():
     print("FOOTBALL NEWS COLLECTOR")
     print("=" * 70)
 
-    # --------------------------------------------------------
-    # Environment
-    # --------------------------------------------------------
-
-    if not THE_NEWS_API_KEY:
-
-        raise Exception(
-            "THE_NEWS_API_KEY is missing."
-        )
-
-    if not SUPABASE_URL:
-
-        raise Exception(
-            "SUPABASE_URL is missing."
-        )
-
-    if not SUPABASE_KEY:
-
-        raise Exception(
-            "SUPABASE_KEY is missing."
-        )
-
     print(
         "News API : The News API"
     )
@@ -748,9 +1079,34 @@ def main():
         "Database : Supabase"
     )
 
-    # --------------------------------------------------------
-    # Teams
-    # --------------------------------------------------------
+    # ========================================================
+    # ENVIRONMENT CHECK
+    # ========================================================
+
+    if not THE_NEWS_API_KEY:
+
+        raise Exception(
+            "THE_NEWS_API_KEY "
+            "is missing."
+        )
+
+    if not SUPABASE_URL:
+
+        raise Exception(
+            "SUPABASE_URL "
+            "is missing."
+        )
+
+    if not SUPABASE_KEY:
+
+        raise Exception(
+            "SUPABASE_KEY "
+            "is missing."
+        )
+
+    # ========================================================
+    # LOAD TEAMS
+    # ========================================================
 
     teams = load_teams()
 
@@ -763,52 +1119,53 @@ def main():
         f"{len(team_index)}"
     )
 
-    # --------------------------------------------------------
-    # Process
-    # --------------------------------------------------------
+    # ========================================================
+    # PROCESS
+    # ========================================================
 
+    total_received = 0
     total_saved = 0
+    total_duplicates = 0
+    total_invalid = 0
 
     total_queries = len(
         NEWS_QUERIES
     )
 
     print(
-        f"Queries: {total_queries}"
+        f"Queries: "
+        f"{total_queries}"
     )
 
     for query_category, query in (
         NEWS_QUERIES.items()
     ):
 
-        try:
+        result = process_query(
+            query_category,
+            query,
+            team_index
+        )
 
-            saved = process_query(
-                query_category,
-                query,
-                team_index
-            )
+        total_received += (
+            result["received"]
+        )
 
-            total_saved += saved
+        total_saved += (
+            result["saved"]
+        )
 
-        except Exception as error:
+        total_duplicates += (
+            result["duplicates"]
+        )
 
-            print("")
+        total_invalid += (
+            result["invalid"]
+        )
 
-            print(
-                f"❌ ERROR in "
-                f"{query_category}:"
-            )
-
-            print(error)
-
-            print(
-                "Continuing..."
-            )
-
-    # --------------------------------------------------------
-    # Summary
-    # --------------------------------------------------------
+    # ========================================================
+    # FINAL SUMMARY
+    # ========================================================
 
     print("")
     print("=" * 70)
@@ -821,8 +1178,23 @@ def main():
     )
 
     print(
-        f"Articles saved   : "
+        f"Articles received : "
+        f"{total_received}"
+    )
+
+    print(
+        f"Articles saved    : "
         f"{total_saved}"
+    )
+
+    print(
+        f"Duplicates        : "
+        f"{total_duplicates}"
+    )
+
+    print(
+        f"Invalid           : "
+        f"{total_invalid}"
     )
 
     print(
