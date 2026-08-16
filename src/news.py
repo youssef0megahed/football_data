@@ -426,7 +426,6 @@ def get_message_title(
 # ============================================================
 # BUILD MATCH MESSAGE
 # ============================================================
-
 def build_match_message(
     match,
     teams,
@@ -434,9 +433,7 @@ def build_match_message(
 ):
 
     competition = get_competition_arabic_name(
-        match.get(
-            "competition_name"
-        )
+        match.get("competition_name")
     )
 
     home = get_team_arabic_name(
@@ -451,18 +448,7 @@ def build_match_message(
         teams,
     )
 
-    status = match.get(
-        "status"
-    )
-
-    status_ar = get_status_arabic(
-        status
-    )
-
-    title = get_message_title(
-        match,
-        previous_status,
-    )
+    status = match.get("status")
 
     match_time = format_time(
         match.get("kickoff_local")
@@ -472,32 +458,107 @@ def build_match_message(
         match.get("kickoff_local")
     )
 
-    score = get_score(match)
+    # ========================================================
+    # TITLE
+    # ========================================================
 
-    lines = [
-        title,
-        "",
-        f"🏆 {competition}",
-        "",
-        f"⚽ {home}", f"🆚 {away}",
-        "",
-        f"⏰ {match_time} بتوقيت القاهرة",
-        f"📆 {match_date}",
-    ]
+    day = get_match_day(
+        match.get("kickoff_local")
+    )
 
-    # --------------------------------------------------------
+    if status == "FINISHED":
+
+        title = "🔚 مباراة انتهت"
+
+    elif status in ["IN_PLAY", "PAUSED"]:
+
+        title = "🔴 مباراة جارية الآن"
+
+    elif day == "today":
+
+        title = "📅 مباراة اليوم"
+
+    elif day == "tomorrow":
+
+        title = "📅 مباراة الغد"
+
+    else:
+
+        title = "⚽ مباراة"
+
+    # ========================================================
     # FINISHED
-    # --------------------------------------------------------
+    # ========================================================
 
-    if status == "FINISHED" and score:
+    if status == "FINISHED":
 
-        home_score, away_score = score
+        score = get_score(match)
 
-        lines.extend([
-            "",
-            f"🏁 النتيجة: "
-            f"{home_score} - {away_score}",
-        ])
+        if score:
+
+            home_score, away_score = score
+
+            return (
+                f"{title}\n"
+                f"\n"
+                f"🏆 {competition}\n"
+                f"\n"
+                f"⚽ {home} 🆚 {away}\n"
+                f"\n"
+                f"📆{match_date}\n"
+                f"\n"
+                f"🏁 النتيجة: "
+                f"{home_score} - {away_score}\n"
+                f"\n"
+                f"#كرة_القدم #Football"
+            )
+
+    # ========================================================
+    # LIVE
+    # ========================================================
+
+    if status in ["IN_PLAY", "PAUSED"]:
+
+        score = get_score(match)
+
+        if score:
+
+            home_score, away_score = score
+
+            return (
+                f"{title}\n"
+                f"\n"
+                f"🏆 {competition}\n"
+                f"\n"
+                f"⚽ {home} 🆚 {away}\n"
+                f"\n"
+                f"📆{match_date}\n"
+                f"\n"
+                f"⏰ {match_time} بتوقيت القاهرة\n"
+                f"\n"
+                f"📊 النتيجة الحالية: "
+                f"{home_score} - {away_score}\n"
+                f"\n"
+                f"#كرة_القدم #Football"
+            )
+
+    # ========================================================
+    # UPCOMING
+    # ========================================================
+
+    return (
+        f"{title}\n"
+        f"\n"
+        f"🏆 {competition}\n"
+        f"\n"
+        f"⚽ {home} 🆚 {away}\n"
+        f"\n"
+        f"📆{match_date}\n"
+        f"\n"
+        f"⏰ {match_time} بتوقيت القاهرة\n"
+        f"\n"
+        f"#كرة_القدم #Football"
+            )
 
     # --------------------------------------------------------
     # LIVE
