@@ -76,7 +76,12 @@ def get_current_season():
 # ============================================================
 
 def get_competition_matches(competition_code, season):
+teams_saved = upsert_teams(matches)
 
+print(
+    f"Teams upserted: {teams_saved}"
+)
+    
     url = f"{FOOTBALL_BASE_URL}/{competition_code}/matches"
 
     params = {
