@@ -1,9 +1,19 @@
 name: Football Fixtures Collector
 
 on:
+
+  # تشغيل يدوي
   workflow_dispatch:
 
+  # تشغيل تلقائي
+  schedule:
+
+    # كل 3 ساعات
+    - cron: "0 */3 * * *"
+
+
 jobs:
+
   collect-fixtures:
 
     runs-on: ubuntu-latest
@@ -22,10 +32,11 @@ jobs:
         run: |
           pip install requests
 
-      - name: Collect and save fixtures
+      - name: Collect and update fixtures
         env:
           FOOTBALL_DATA_TOKEN: ${{ secrets.FOOTBALL_DATA_TOKEN }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+
         run: |
           python src/fixtures.py
