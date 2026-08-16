@@ -15,9 +15,9 @@ SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
-TIMEZONE = ZoneInfo("Africa/Cairo")
+TIMEZONE = ZoneInfo("Africa/Cairo") 
 
-SUPABASE_TABLE = "matches"
+MATCHES_TABLE = "matches"
 TEAMS_TABLE = "teams"
 
 
