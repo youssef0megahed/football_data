@@ -479,8 +479,7 @@ def build_match_message(
         "",
         f"🏆 {competition}",
         "",
-        f"⚽ {home}",
-        f"🆚 {away}",
+        f"⚽ {home}", f"🆚 {away}",
         "",
         f"⏰ {match_time} بتوقيت القاهرة",
         f"📆 {match_date}",
@@ -511,7 +510,6 @@ def build_match_message(
 
         lines.extend([
             "",
-            f"🔴 الحالة: {status_ar}",
         ])
 
         if score:
