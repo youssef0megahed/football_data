@@ -60,7 +60,7 @@ jobs:
       # =====================================================
 
       - name: Run News Engine
-        run: python src/news.py
+        run: python src/news_fixtures.py
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
