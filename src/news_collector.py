@@ -18,13 +18,9 @@ SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
 TIMEOUT = 30
 
-# عدد الأخبار المطلوبة لكل Query
-ARTICLES_PER_QUERY = 3
+ARTICLES_PER_QUERY = 5
 
-# نطلب من API آخر 48 ساعة
 API_LOOKBACK_HOURS = 48
-
-# حماية إضافية داخل البرنامج
 MAX_ARTICLE_AGE_HOURS = 48
 
 
@@ -40,6 +36,20 @@ NEWS_QUERIES = {
     "Ligue 1": '"Ligue 1"',
     "Champions League": '"Champions League"',
     "Transfers": 'football + transfer',
+}
+
+
+# ============================================================
+# LEAGUES
+# ============================================================
+
+LEAGUE_NAMES = {
+    "Premier League": "Premier League",
+    "La Liga": "La Liga",
+    "Serie A": "Serie A",
+    "Bundesliga": "Bundesliga",
+    "Ligue 1": "Ligue 1",
+    "Champions League": "Champions League",
 }
 
 
@@ -69,8 +79,40 @@ FOOTBALL_KEYWORDS = [
     "coupe de france",
     "footballer",
     "soccer player",
-    "transfer",
-    "transfers",
+    "football club",
+    "football team",
+]
+
+
+# ============================================================
+# AMERICAN FOOTBALL / NON-SOCCER
+# ============================================================
+
+NON_SOCCER_KEYWORDS = [
+    "nfl",
+    "ncaa",
+    "college football",
+    "american football",
+    "touchdown",
+    "quarterback",
+    "qb",
+    "running back",
+    "wide receiver",
+    "tight end",
+    "linebacker",
+    "defensive tackle",
+    "offensive line",
+    "rushing yards",
+    "passing yards",
+    "receiving yards",
+    "field goal",
+    "super bowl",
+    "draft pick",
+    "nfl draft",
+    "college football transfer",
+    "transfer portal",
+    "de'von achane",
+    "mcmillan",
 ]
 
 
@@ -98,6 +140,10 @@ TRANSFER_KEYWORDS = [
     "deal",
     "agrees deal",
     "agreement",
+    "loan",
+    "loan deal",
+    "free agent",
+    "medical",
 ]
 
 
@@ -115,6 +161,8 @@ INJURY_KEYWORDS = [
     "fitness",
     "sidelined",
     "ruled out",
+    "setback",
+    "injury update",
 ]
 
 
@@ -130,6 +178,33 @@ MANAGER_KEYWORDS = [
     "sacking",
     "appointed",
     "new manager",
+    "managerial",
+]
+
+
+# ============================================================
+# MATCH KEYWORDS
+# ============================================================
+
+MATCH_KEYWORDS = [
+    "match",
+    "fixture",
+    "fixtures",
+    "kickoff",
+    "kick-off",
+    "starting xi",
+    "starting lineup",
+    "lineup",
+    "line-up",
+    "live",
+    "match report",
+    "preview",
+    "result",
+    "win",
+    "draw",
+    "defeat",
+    "goal",
+    "goals",
 ]
 
 
@@ -147,7 +222,7 @@ def supabase_headers():
 
 
 # ============================================================
-# NORMALIZE TEXT
+# NORMALIZE
 # ============================================================
 
 def normalize(text):
@@ -157,8 +232,18 @@ def normalize(text):
 
     text = str(text).lower()
 
+    replacements = {
+        "&": " and ",
+        "’": "'",
+        "–": "-",
+        "—": "-",
+    }
+
+    for old, new in replacements.items():
+        text = text.replace(old, new)
+
     text = re.sub(
-        r"[^a-z0-9\s]",
+        r"[^a-z0-9\s'-]",
         " ",
         text
     )
@@ -173,7 +258,7 @@ def normalize(text):
 
 
 # ============================================================
-# PARSE DATE
+# DATE PARSER
 # ============================================================
 
 def parse_article_date(value):
@@ -205,7 +290,7 @@ def parse_article_date(value):
 
 
 # ============================================================
-# IS RECENT
+# RECENT ARTICLE
 # ============================================================
 
 def is_recent_article(
@@ -234,6 +319,54 @@ def is_recent_article(
 
 
 # ============================================================
+# KEYWORD MATCH
+# ============================================================
+
+def contains_keyword(
+    text,
+    keywords
+):
+
+    normalized_text = normalize(text)
+
+    for keyword in keywords:
+
+        keyword_normalized = normalize(
+            keyword
+        )
+
+        if not keyword_normalized:
+            continue
+
+        if keyword_normalized in normalized_text:
+            return True
+
+    return False
+
+
+# ============================================================
+# NON SOCCER FILTER
+# ============================================================
+
+def is_non_soccer(
+    title,
+    description,
+    keywords
+):
+
+    text = (
+        f"{title} "
+        f"{description} "
+        f"{keywords}"
+    )
+
+    return contains_keyword(
+        text,
+        NON_SOCCER_KEYWORDS
+    )
+
+
+# ============================================================
 # FOOTBALL FILTER
 # ============================================================
 
@@ -244,12 +377,34 @@ def is_football_article(
     categories=None
 ):
 
-    text = normalize(
-        f"{title} {description} {keywords}"
+    text = (
+        f"{title} "
+        f"{description} "
+        f"{keywords}"
     )
 
-    # The API category is useful as an additional signal.
-    if isinstance(categories, list):
+    # First reject American Football.
+    if is_non_soccer(
+        title,
+        description,
+        keywords
+    ):
+        return False
+
+    normalized_text = normalize(
+        text
+    )
+
+    if any(
+        normalize(keyword) in normalized_text
+        for keyword in FOOTBALL_KEYWORDS
+    ):
+        return True
+
+    if isinstance(
+        categories,
+        list
+    ):
 
         normalized_categories = [
             normalize(x)
@@ -258,12 +413,32 @@ def is_football_article(
         ]
 
         if "sports" in normalized_categories:
-            return True
 
-    for keyword in FOOTBALL_KEYWORDS:
+            # Sports alone is NOT enough.
+            # Require some soccer signal.
+            soccer_signals = [
+                "fc",
+                "afc",
+                "cf",
+                "sc",
+                "united",
+                "city",
+                "real madrid",
+                "barcelona",
+                "arsenal",
+                "chelsea",
+                "liverpool",
+                "bayern",
+                "juventus",
+                "milan",
+                "inter",
+                "psg",
+            ]
 
-        if normalize(keyword) in text:
-            return True
+            for signal in soccer_signals:
+
+                if normalize(signal) in normalized_text:
+                    return True
 
     return False
 
@@ -284,7 +459,8 @@ def load_teams():
             "source_team_id,"
             "name,"
             "short_name,"
-            "tla"
+            "tla,"
+            "league"
         )
     }
 
@@ -294,6 +470,29 @@ def load_teams():
         params=params,
         timeout=TIMEOUT
     )
+
+    # --------------------------------------------------------
+    # Fallback if league column does not exist.
+    # --------------------------------------------------------
+
+    if response.status_code != 200:
+
+        params = {
+            "select": (
+                "id,"
+                "source_team_id,"
+                "name,"
+                "short_name,"
+                "tla"
+            )
+        }
+
+        response = requests.get(
+            url,
+            headers=supabase_headers(),
+            params=params,
+            timeout=TIMEOUT
+        )
 
     if response.status_code != 200:
 
@@ -305,8 +504,10 @@ def load_teams():
 
     data = response.json()
 
-    if not isinstance(data, list):
-
+    if not isinstance(
+        data,
+        list
+    ):
         raise Exception(
             "Invalid teams response"
         )
@@ -330,7 +531,10 @@ def build_team_index(
 
     for team in teams:
 
-        if not isinstance(team, dict):
+        if not isinstance(
+            team,
+            dict
+        ):
             continue
 
         names = []
@@ -344,37 +548,54 @@ def build_team_index(
             if not value:
                 continue
 
-            normalized = normalize(value)
+            normalized = normalize(
+                value
+            )
 
             if len(normalized) >= 3:
-                names.append(normalized)
+                names.append(
+                    normalized
+                )
 
         if not names:
             continue
 
         index.append({
-            "id": team.get("id"),
-            "source_team_id": team.get(
-                "source_team_id"
-            ),
-            "name": team.get("name"),
-            "short_name": team.get(
-                "short_name"
-            ),
-            "tla": team.get("tla"),
-            "names": list(
-                dict.fromkeys(names)
-            ),
+
+            "id":
+                team.get("id"),
+
+            "source_team_id":
+                team.get("source_team_id"),
+
+            "name":
+                team.get("name"),
+
+            "short_name":
+                team.get("short_name"),
+
+            "tla":
+                team.get("tla"),
+
+            "league":
+                team.get("league"),
+
+            "names":
+                list(
+                    dict.fromkeys(
+                        names
+                    )
+                ),
         })
 
     return index
 
 
 # ============================================================
-# FIND TEAM
+# TEAM FINDER
 # ============================================================
 
-def find_team(
+def find_teams(
     title,
     description,
     keywords,
@@ -385,11 +606,9 @@ def find_team(
         f"{title} {description} {keywords}"
     )
 
-    if not text:
-        return None
+    found = []
 
-    # Longer names first to avoid
-    # short-name false positives.
+    # Longest names first.
     sorted_teams = sorted(
         team_index,
         key=lambda team: max(
@@ -406,64 +625,264 @@ def find_team(
 
         for name in team["names"]:
 
-            pattern = (
-                rf"\b{re.escape(name)}\b"
+            if len(name) <= 3:
+                pattern = (
+                    rf"\b{re.escape(name)}\b"
+                )
+
+                if not re.search(
+                    pattern,
+                    text
+                ):
+                    continue
+
+            else:
+
+                if name not in text:
+                    continue
+
+            found.append(
+                team
             )
 
-            if re.search(
-                pattern,
-                text
-            ):
-                return team
+            break
+
+    return found
+
+
+# ============================================================
+# GET TEAM LEAGUE
+# ============================================================
+
+def get_team_league(
+    team
+):
+
+    if not team:
+        return None
+
+    league = team.get(
+        "league"
+    )
+
+    if league:
+        return league
 
     return None
 
 
 # ============================================================
-# SOURCE
+# LEAGUE ALIASES
 # ============================================================
 
-def get_source(article):
+LEAGUE_ALIASES = {
 
-    source = article.get("source")
+    "Premier League": [
+        "premier league",
+        "english premier league",
+    ],
 
-    if isinstance(source, str):
+    "La Liga": [
+        "la liga",
+        "laliga",
+        "spanish la liga",
+        "spanish league",
+    ],
 
-        source = source.strip()
+    "Serie A": [
+        "serie a",
+        "italian serie a",
+        "italian league",
+    ],
 
-        if source:
-            return source
+    "Bundesliga": [
+        "bundesliga",
+        "german bundesliga",
+        "german league",
+    ],
 
-    if isinstance(source, dict):
+    "Ligue 1": [
+        "ligue 1",
+        "ligue1",
+        "french ligue 1",
+        "french league",
+    ],
 
-        return (
-            source.get("name")
-            or source.get("title")
-            or "The News API"
-        )
-
-    return "The News API"
+    "Champions League": [
+        "champions league",
+        "uefa champions league",
+    ],
+}
 
 
 # ============================================================
-# IMAGE
+# DETECT EXPLICIT LEAGUE
 # ============================================================
 
-def get_image(article):
+def detect_explicit_leagues(
+    text
+):
 
-    image = (
-        article.get("image_url")
-        or article.get("image")
+    normalized_text = normalize(
+        text
     )
 
-    if not image:
-        return None
+    found = []
 
-    return str(image).strip()
+    for league, aliases in (
+        LEAGUE_ALIASES.items()
+    ):
+
+        for alias in aliases:
+
+            if normalize(alias) in normalized_text:
+
+                found.append(
+                    league
+                )
+
+                break
+
+    return found
 
 
 # ============================================================
-# CLASSIFY
+# DETERMINE LEAGUE
+# ============================================================
+
+def determine_league(
+    query_name,
+    title,
+    description,
+    keywords,
+    found_teams
+):
+
+    text = (
+        f"{title} "
+        f"{description} "
+        f"{keywords}"
+    )
+
+    explicit_leagues = (
+        detect_explicit_leagues(
+            text
+        )
+    )
+
+    # --------------------------------------------------------
+    # Champions League
+    # --------------------------------------------------------
+
+    if (
+        query_name
+        == "Champions League"
+    ):
+
+        if (
+            "Champions League"
+            in explicit_leagues
+        ):
+            return (
+                "Champions League"
+            )
+
+        # A Champions League query must
+        # contain a Champions League signal.
+        return None
+
+
+    # --------------------------------------------------------
+    # Transfers
+    # --------------------------------------------------------
+
+    if query_name == "Transfers":
+
+        if explicit_leagues:
+
+            # Prefer actual league mention.
+            for league in [
+                "Premier League",
+                "La Liga",
+                "Serie A",
+                "Bundesliga",
+                "Ligue 1",
+            ]:
+
+                if league in explicit_leagues:
+                    return league
+
+        # Try team league.
+        for team in found_teams:
+
+            league = get_team_league(
+                team
+            )
+
+            if league:
+                return league
+
+        return None
+
+
+    # --------------------------------------------------------
+    # League query
+    # --------------------------------------------------------
+
+    requested_league = (
+        LEAGUE_NAMES.get(
+            query_name
+        )
+    )
+
+    if not requested_league:
+        return None
+
+
+    # --------------------------------------------------------
+    # Explicit league match
+    # --------------------------------------------------------
+
+    if requested_league in (
+        explicit_leagues
+    ):
+        return requested_league
+
+
+    # --------------------------------------------------------
+    # Team based validation
+    # --------------------------------------------------------
+
+    for team in found_teams:
+
+        team_league = get_team_league(
+            team
+        )
+
+        if not team_league:
+            continue
+
+        if normalize(
+            team_league
+        ) == normalize(
+            requested_league
+        ):
+            return requested_league
+
+        # Explicitly reject team from another league.
+        return None
+
+
+    # --------------------------------------------------------
+    # No league and no known team:
+    # For a league query, reject it.
+    # --------------------------------------------------------
+
+    return None
+
+
+# ============================================================
+# DETECT CATEGORY
 # ============================================================
 
 def classify_article(
@@ -473,49 +892,55 @@ def classify_article(
     query_name
 ):
 
-    text = normalize(
-        f"{title} {description} {keywords}"
+    text = (
+        f"{title} "
+        f"{description} "
+        f"{keywords}"
     )
 
-    # --------------------------------------------------------
-    # TRANSFERS
-    # --------------------------------------------------------
+    normalized = normalize(
+        text
+    )
 
+    # Transfers first.
     for keyword in TRANSFER_KEYWORDS:
 
-        if normalize(keyword) in text:
+        if normalize(keyword) in normalized:
             return "transfers"
 
-    # --------------------------------------------------------
-    # INJURIES
-    # --------------------------------------------------------
 
+    # Injuries.
     for keyword in INJURY_KEYWORDS:
 
-        if normalize(keyword) in text:
+        if normalize(keyword) in normalized:
             return "injury"
 
-    # --------------------------------------------------------
-    # MANAGER
-    # --------------------------------------------------------
 
+    # Managers.
     for keyword in MANAGER_KEYWORDS:
 
-        if normalize(keyword) in text:
+        if normalize(keyword) in normalized:
             return "manager"
 
-    # --------------------------------------------------------
-    # CHAMPIONS LEAGUE
-    # --------------------------------------------------------
 
-    if "champions league" in text:
+    # Champions League.
+    if (
+        "champions league"
+        in normalized
+    ):
         return "champions_league"
 
-    # --------------------------------------------------------
-    # LEAGUES
-    # --------------------------------------------------------
 
+    # Match.
+    for keyword in MATCH_KEYWORDS:
+
+        if normalize(keyword) in normalized:
+            return "match"
+
+
+    # League query fallback.
     league_categories = {
+
         "Premier League":
             "premier_league",
 
@@ -545,34 +970,60 @@ def classify_article(
 
 
 # ============================================================
-# GET LEAGUE
+# SOURCE
 # ============================================================
 
-def get_league(
-    query_name
+def get_source(
+    article
 ):
 
-    return {
+    source = article.get(
+        "source"
+    )
 
-        "Premier League":
-            "Premier League",
+    if isinstance(
+        source,
+        str
+    ):
 
-        "La Liga":
-            "La Liga",
+        source = source.strip()
 
-        "Serie A":
-            "Serie A",
+        if source:
+            return source
 
-        "Bundesliga":
-            "Bundesliga",
+    if isinstance(
+        source,
+        dict
+    ):
 
-        "Ligue 1":
-            "Ligue 1",
+        return (
+            source.get("name")
+            or source.get("title")
+            or "The News API"
+        )
 
-        "Champions League":
-            "Champions League",
+    return "The News API"
 
-    }.get(query_name)
+
+# ============================================================
+# IMAGE
+# ============================================================
+
+def get_image(
+    article
+):
+
+    image = (
+        article.get("image_url")
+        or article.get("image")
+    )
+
+    if not image:
+        return None
+
+    return str(
+        image
+    ).strip()
 
 
 # ============================================================
@@ -660,20 +1111,12 @@ def fetch_news(
             "❌ Invalid JSON response"
         )
 
-        print(
-            response.text[:1000]
-        )
-
         return []
 
     if not isinstance(
         data,
         dict
     ):
-
-        print(
-            "❌ Invalid API response"
-        )
 
         return []
 
@@ -706,7 +1149,7 @@ def article_exists(
     )
 
     # --------------------------------------------------------
-    # First check source_article_id
+    # UUID / source article ID
     # --------------------------------------------------------
 
     if source_article_id:
@@ -735,13 +1178,17 @@ def article_exists(
             data = response.json()
 
             if (
-                isinstance(data, list)
+                isinstance(
+                    data,
+                    list
+                )
                 and len(data) > 0
             ):
                 return True
 
+
     # --------------------------------------------------------
-    # Then check URL
+    # URL
     # --------------------------------------------------------
 
     if source_url:
@@ -770,7 +1217,10 @@ def article_exists(
             data = response.json()
 
             if (
-                isinstance(data, list)
+                isinstance(
+                    data,
+                    list
+                )
                 and len(data) > 0
             ):
                 return True
@@ -796,7 +1246,7 @@ def prepare_article(
 
 
     # ========================================================
-    # BASIC DATA
+    # DATA
     # ========================================================
 
     title = (
@@ -830,7 +1280,7 @@ def prepare_article(
 
 
     # ========================================================
-    # REQUIRED FIELDS
+    # REQUIRED
     # ========================================================
 
     if not title:
@@ -858,7 +1308,20 @@ def prepare_article(
 
 
     # ========================================================
-    # FOOTBALL FILTER
+    # NON SOCCER
+    # ========================================================
+
+    if is_non_soccer(
+        title,
+        description,
+        keywords
+    ):
+
+        return None, "non_soccer"
+
+
+    # ========================================================
+    # FOOTBALL
     # ========================================================
 
     if not is_football_article(
@@ -867,6 +1330,7 @@ def prepare_article(
         keywords,
         categories
     ):
+
         return None, "not_football"
 
 
@@ -874,20 +1338,82 @@ def prepare_article(
     # TEAM DETECTION
     # ========================================================
 
-    team = find_team(
+    found_teams = find_teams(
         title,
         description,
         keywords,
         team_index
     )
 
+
+    # ========================================================
+    # LEAGUE VALIDATION
+    # ========================================================
+
+    league = determine_league(
+        query_name,
+        title,
+        description,
+        keywords,
+        found_teams
+    )
+
+    if league is None:
+
+        return None, "wrong_league"
+
+
+    # ========================================================
+    # MAIN TEAM
+    # ========================================================
+
+    team = None
+
+    if found_teams:
+
+        # Prefer a team that belongs to
+        # the determined league.
+
+        for candidate in found_teams:
+
+            candidate_league = (
+                get_team_league(
+                    candidate
+                )
+            )
+
+            if (
+                candidate_league
+                and normalize(
+                    candidate_league
+                )
+                == normalize(
+                    league
+                )
+            ):
+
+                team = candidate
+
+                break
+
+        if team is None:
+
+            team = found_teams[0]
+
+
+    # ========================================================
+    # TEAM DATA
+    # ========================================================
+
     team_id = None
     team_name = None
 
     if team:
 
-        source_team_id = team.get(
-            "source_team_id"
+        source_team_id = (
+            team.get(
+                "source_team_id"
+            )
         )
 
         if source_team_id is not None:
@@ -909,15 +1435,6 @@ def prepare_article(
         title,
         description,
         keywords,
-        query_name
-    )
-
-
-    # ========================================================
-    # LEAGUE
-    # ========================================================
-
-    league = get_league(
         query_name
     )
 
@@ -948,7 +1465,7 @@ def prepare_article(
 
 
     # ========================================================
-    # COLLECTED TIME
+    # COLLECTED
     # ========================================================
 
     collected_at = datetime.now(
@@ -957,25 +1474,24 @@ def prepare_article(
 
 
     # ========================================================
-    # DATABASE RECORD
+    # RECORD
     # ========================================================
 
     record = {
 
-        # Required
+        # Required fields
         "title":
             title,
 
         "content":
             content,
 
-        # General
+        # News type
         "news_type":
             "EXTERNAL",
 
-        # IMPORTANT:
-        # match_id intentionally omitted.
-        # General news does not belong
+        # DO NOT set match_id.
+        # General news is not tied
         # to a specific match.
 
         # Source
@@ -1061,7 +1577,7 @@ def prepare_article(
 
 
 # ============================================================
-# SAVE ARTICLE
+# SAVE
 # ============================================================
 
 def save_article(
@@ -1074,7 +1590,6 @@ def save_article(
 
     headers = {
         **supabase_headers(),
-
         "Prefer":
             "return=minimal",
     }
@@ -1086,11 +1601,12 @@ def save_article(
         timeout=TIMEOUT
     )
 
-    if response.status_code in [
+    if response.status_code in (
         200,
         201,
         204,
-    ]:
+    ):
+
         return True
 
     print(
@@ -1115,7 +1631,9 @@ def process_query(
 ):
 
     print("")
-    print("-" * 70)
+    print(
+        "-" * 70
+    )
 
     print(
         f"Query: {query_name}"
@@ -1134,18 +1652,24 @@ def process_query(
     saved = 0
     duplicates = 0
     old_articles = 0
-    non_football = 0
+    not_football = 0
+    non_soccer = 0
+    wrong_league = 0
     invalid = 0
+
 
     for article in articles:
 
         try:
 
-            record, status = prepare_article(
-                article,
-                query_name,
-                team_index
+            record, status = (
+                prepare_article(
+                    article,
+                    query_name,
+                    team_index
+                )
             )
+
 
             # ------------------------------------------------
             # OLD
@@ -1164,15 +1688,47 @@ def process_query(
 
 
             # ------------------------------------------------
+            # NON SOCCER
+            # ------------------------------------------------
+
+            if status == "non_soccer":
+
+                non_soccer += 1
+
+                print(
+                    "⛔ Non-soccer: "
+                    f"{article.get('title', '')}"
+                )
+
+                continue
+
+
+            # ------------------------------------------------
             # NOT FOOTBALL
             # ------------------------------------------------
 
             if status == "not_football":
 
-                non_football += 1
+                not_football += 1
 
                 print(
-                    "⏭️ Not football: "
+                    "⛔ Not football: "
+                    f"{article.get('title', '')}"
+                )
+
+                continue
+
+
+            # ------------------------------------------------
+            # WRONG LEAGUE
+            # ------------------------------------------------
+
+            if status == "wrong_league":
+
+                wrong_league += 1
+
+                print(
+                    "⛔ Wrong league: "
                     f"{article.get('title', '')}"
                 )
 
@@ -1188,7 +1744,7 @@ def process_query(
                 invalid += 1
 
                 print(
-                    f"⏭️ Invalid article: "
+                    "⛔ Invalid: "
                     f"{status}"
                 )
 
@@ -1250,13 +1806,14 @@ def process_query(
 
                 print(
                     "   League: "
-                    f"{record['league'] or '-'}"
+                    f"{record['league']}"
                 )
 
                 print(
                     "   Team: "
                     f"{record['team_name'] or '-'}"
                 )
+
 
         except Exception as error:
 
@@ -1270,6 +1827,10 @@ def process_query(
                 str(error)
             )
 
+
+    # ========================================================
+    # QUERY SUMMARY
+    # ========================================================
 
     print("")
 
@@ -1286,12 +1847,21 @@ def process_query(
     )
 
     print(
-        f"Not football   : {non_football}"
+        f"Non-soccer     : {non_soccer}"
+    )
+
+    print(
+        f"Not football   : {not_football}"
+    )
+
+    print(
+        f"Wrong league   : {wrong_league}"
     )
 
     print(
         f"Invalid        : {invalid}"
     )
+
 
     return {
 
@@ -1307,8 +1877,14 @@ def process_query(
         "old":
             old_articles,
 
-        "non_football":
-            non_football,
+        "non_soccer":
+            non_soccer,
+
+        "not_football":
+            not_football,
+
+        "wrong_league":
+            wrong_league,
 
         "invalid":
             invalid,
@@ -1321,9 +1897,17 @@ def process_query(
 
 def main():
 
-    print("=" * 70)
-    print("FOOTBALL NEWS COLLECTOR")
-    print("=" * 70)
+    print(
+        "=" * 70
+    )
+
+    print(
+        "FOOTBALL NEWS COLLECTOR"
+    )
+
+    print(
+        "=" * 70
+    )
 
     print(
         "News API : The News API"
@@ -1344,11 +1928,13 @@ def main():
     )
 
     print(
-        f"Safety filter: "
+        f"Max article age: "
         f"{MAX_ARTICLE_AGE_HOURS} hours"
     )
 
-    print("=" * 70)
+    print(
+        "=" * 70
+    )
 
 
     # ========================================================
@@ -1375,7 +1961,7 @@ def main():
 
 
     # ========================================================
-    # LOAD TEAMS
+    # TEAMS
     # ========================================================
 
     teams = load_teams()
@@ -1403,12 +1989,14 @@ def main():
     total_saved = 0
     total_duplicates = 0
     total_old = 0
-    total_non_football = 0
+    total_non_soccer = 0
+    total_not_football = 0
+    total_wrong_league = 0
     total_invalid = 0
 
 
     # ========================================================
-    # PROCESS QUERIES
+    # RUN QUERIES
     # ========================================================
 
     for query_name, query in (
@@ -1437,8 +2025,16 @@ def main():
             result["old"]
         )
 
-        total_non_football += (
-            result["non_football"]
+        total_non_soccer += (
+            result["non_soccer"]
+        )
+
+        total_not_football += (
+            result["not_football"]
+        )
+
+        total_wrong_league += (
+            result["wrong_league"]
         )
 
         total_invalid += (
@@ -1451,9 +2047,17 @@ def main():
     # ========================================================
 
     print("")
-    print("=" * 70)
-    print("FINAL SUMMARY")
-    print("=" * 70)
+    print(
+        "=" * 70
+    )
+
+    print(
+        "FINAL SUMMARY"
+    )
+
+    print(
+        "=" * 70
+    )
 
     print(
         f"Queries processed : "
@@ -1481,8 +2085,18 @@ def main():
     )
 
     print(
+        f"Non-soccer        : "
+        f"{total_non_soccer}"
+    )
+
+    print(
         f"Not football      : "
-        f"{total_non_football}"
+        f"{total_not_football}"
+    )
+
+    print(
+        f"Wrong league      : "
+        f"{total_wrong_league}"
     )
 
     print(
@@ -1494,7 +2108,9 @@ def main():
         "Status            : SUCCESS"
     )
 
-    print("=" * 70)
+    print(
+        "=" * 70
+    )
 
 
 # ============================================================
