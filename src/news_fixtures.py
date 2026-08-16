@@ -1,4 +1,4 @@
-import os
+mport  os
 import requests
 
 from datetime import datetime
@@ -392,14 +392,14 @@ def get_message_title(
 
     if status == "FINISHED":
 
-        return "🔚 مباراة انتهت"
+        return "  انتهت المباراة 🔔🕛"
 
     if status in [
         "IN_PLAY",
         "PAUSED",
     ]:
 
-        return "🔴 مباراة جارية الآن"
+        return "🔴 مباراة جارية الان"
 
     if previous_status in [
         "TIMED",
@@ -467,7 +467,7 @@ def build_match_message(
     # ========================================================
 
     if status == "FINISHED":
-        title = "🔚 مباراة انتهت"
+        title = "� انتهت المباراة "
 
     elif status in ["IN_PLAY", "PAUSED"]:
         title = "🔴 مباراة جارية الآن"
@@ -498,7 +498,7 @@ def build_match_message(
                 f"\n"
                 f"🏆 {competition}\n"
                 f"\n"
-                f"⚽ {home} 🆚 {away}\n"
+                f" {home} 🆚 {away}\n"
                 f"\n"
                 f"📆{match_date}\n"
                 f"\n"
@@ -525,7 +525,7 @@ def build_match_message(
                 f"\n"
                 f"🏆 {competition}\n"
                 f"\n"
-                f"⚽ {home} 🆚 {away}\n"
+                f" {home} 🆚 {away}\n"
                 f"\n"
                 f"📆{match_date}\n"
                 f"\n"
@@ -546,7 +546,7 @@ def build_match_message(
         f"\n"
         f"🏆 {competition}\n"
         f"\n"
-        f"⚽ {home} 🆚 {away}\n"
+        f" {home} 🆚 {away}\n"
         f"\n"
         f"📆{match_date}\n"
         f"\n"
