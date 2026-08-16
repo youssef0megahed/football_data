@@ -76,12 +76,7 @@ def get_current_season():
 # ============================================================
 
 def get_competition_matches(competition_code, season):
-teams_saved = upsert_teams(matches)
 
-print(
-    f"Teams upserted: {teams_saved}"
-)
-    
     url = f"{FOOTBALL_BASE_URL}/{competition_code}/matches"
 
     params = {
@@ -203,7 +198,6 @@ def upsert_teams(matches):
     )
 
     if response.status_code not in [200, 201]:
-
         raise Exception(
             f"Supabase teams upsert failed "
             f"{response.status_code}: "
@@ -298,9 +292,8 @@ def upsert_matches(matches):
     )
 
     if response.status_code not in [200, 201]:
-
         raise Exception(
-            f"Supabase upsert failed "
+            f"Supabase matches upsert failed "
             f"{response.status_code}: "
             f"{response.text}"
         )
@@ -356,6 +349,7 @@ def main():
     print(f"Season    : {season}")
 
     total_processed = 0
+    total_teams = 0
 
     # ========================================================
     # FIVE LEAGUES
@@ -373,7 +367,7 @@ def main():
         try:
 
             # ------------------------------------------------
-            # Supabase competition
+            # Get competition ID
             # ------------------------------------------------
 
             competition_id = get_competition_id(
@@ -386,7 +380,7 @@ def main():
             )
 
             # ------------------------------------------------
-            # Football API
+            # Get season matches
             # ------------------------------------------------
 
             matches = get_competition_matches(
@@ -399,15 +393,28 @@ def main():
                 f"{len(matches)}"
             )
 
+            # ------------------------------------------------
+            # Save teams
+            # ------------------------------------------------
+
+            teams_saved = upsert_teams(matches)
+
+            total_teams += teams_saved
+
+            print(
+                f"Teams upserted: "
+                f"{teams_saved}"
+            )
+
+            # ------------------------------------------------
+            # Prepare selected matches
+            # ------------------------------------------------
+
             matches_to_update = []
 
             yesterday_count = 0
             today_count = 0
             tomorrow_count = 0
-
-            # ------------------------------------------------
-            # Filter yesterday / today / tomorrow
-            # ------------------------------------------------
 
             for match in matches:
 
@@ -439,7 +446,7 @@ def main():
                     tomorrow_count += 1
 
             # ------------------------------------------------
-            # UPSERT
+            # UPSERT MATCHES
             # ------------------------------------------------
 
             saved = upsert_matches(
@@ -462,17 +469,24 @@ def main():
             )
 
             print(
-                f"Upserted  : {saved}"
+                f"Matches upserted: {saved}"
             )
 
         except Exception as error:
 
             print("")
-            print(f"❌ ERROR: {error}")
-            print("Continuing with next league...")
+            print(
+                f"❌ ERROR in {league_name}:"
+            )
+
+            print(error)
+
+            print(
+                "Continuing with next league..."
+            )
 
     # ========================================================
-    # SUMMARY
+    # FINAL SUMMARY
     # ========================================================
 
     print("")
@@ -481,8 +495,11 @@ def main():
     print("=" * 70)
 
     print(
-        f"Total records processed: "
-        f"{total_processed}"
+        f"Teams processed  : {total_teams}"
+    )
+
+    print(
+        f"Matches processed: {total_processed}"
     )
 
     print("")
