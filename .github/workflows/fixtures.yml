@@ -40,3 +40,11 @@ jobs:
 
         run: |
           python src/fixtures.py
+
+
+          
+- name: Test Telegram
+  run: python src/telegram_test.py
+  env:
+    TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+    TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
