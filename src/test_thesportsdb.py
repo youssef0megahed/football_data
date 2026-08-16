@@ -2,165 +2,103 @@ import requests
 
 
 BASE_URL = "https://site.api.espn.com/apis/site/v2/sports/soccer"
-LEAGUE = "esp.1"
+
 DATE = "20260816"
 
+LEAGUES = {
+    "Premier League": "eng.1",
+    "La Liga": "esp.1",
+    "Serie A": "ita.1",
+    "Bundesliga": "ger.1",
+    "Ligue 1": "fra.1",
+    "Champions League": "uefa.champions",
+}
 
-def main():
+
+def test_league(name, league):
+
+    url = f"{BASE_URL}/{league}/scoreboard"
 
     response = requests.get(
-        f"{BASE_URL}/{LEAGUE}/scoreboard",
+        url,
         params={"dates": DATE},
         timeout=30,
     )
 
-    response.raise_for_status()
+    print("\n" + "=" * 60)
+    print(name, "|", league)
+    print("STATUS:", response.status_code)
 
-    matches = response.json().get("events", [])
+    if response.status_code != 200:
+        print("RESULT: FAILED")
+        return
 
-    for match in matches:
+    data = response.json()
 
-        if "Racing" not in match.get("name", ""):
-            continue
+    events = data.get("events", [])
 
-        event_id = match["id"]
-        competition = match["competitions"][0]
+    print("MATCHES:", len(events))
 
-        print("=" * 60)
-        print("MATCH:", match["name"])
-        print("ESPN ID:", event_id)
+    if not events:
+        print("RESULT: NO MATCHES")
+        return
 
-        # -------------------------
-        # BASIC MATCH DATA
-        # -------------------------
+    print("RESULT: OK")
 
-        print("\nBASIC DATA")
+    for event in events[:3]:
 
-        print("Date:", match.get("date"))
-        print("Season:", match.get("season", {}).get("slug"))
+        competition = event.get(
+            "competitions",
+            [{}]
+        )[0]
 
-        status = competition.get("status", {})
-
-        print(
-            "Status:",
-            status.get("type", {}).get("name")
-        )
-
-        for team in competition.get("competitors", []):
-
-            print(
-                "Team:",
-                team.get("team", {}).get("displayName"),
-                "| Score:",
-                team.get("score"),
-                "| Home/Away:",
-                team.get("homeAway"),
-            )
-
-        # -------------------------
-        # MATCH EVENTS
-        # -------------------------
-
-        print("\nEVENTS")
-
-        details = competition.get("details", [])
-
-        print("Total events:", len(details))
-
-        for event in details:
-
-            print(
-                event.get("clock", {}).get("displayValue"),
-                "|",
-                event.get("type", {}).get("text"),
-                "|",
-                event.get("team", {}).get("id"),
-                "|",
-                [
-                    p.get("displayName")
-                    for p in event.get(
-                        "athletesInvolved",
-                        []
-                    )
-                ],
-            )
-
-        # -------------------------
-        # TEAM STATISTICS
-        # -------------------------
-
-        print("\nTEAM STATISTICS")
-
-        for team in competition.get(
+        competitors = competition.get(
             "competitors",
             []
-        ):
+        )
 
-            print(
-                "\n",
-                team.get("team", {}).get(
-                    "displayName"
+        teams = []
+
+        for team in competitors:
+
+            teams.append(
+                team.get(
+                    "team",
+                    {}
+                ).get(
+                    "displayName",
+                    ""
                 )
             )
 
-            for stat in team.get(
-                "statistics",
-                []
-            ):
-
-                print(
-                    stat.get("name"),
-                    "=",
-                    stat.get("displayValue"),
-                )
-
-        # -------------------------
-        # SUMMARY
-        # -------------------------
-
-        summary_url = (
-            f"{BASE_URL}/{LEAGUE}/summary"
+        print(
+            "-",
+            event.get("name"),
+            "|",
+            event.get("date"),
+            "|",
+            teams
         )
 
-        summary_response = requests.get(
-            summary_url,
-            params={"event": event_id},
-            timeout=30,
-        )
 
-        summary_response.raise_for_status()
+def main():
 
-        summary = summary_response.json()
+    print("=" * 60)
+    print("ESPN LEAGUE COVERAGE TEST")
+    print("=" * 60)
 
-        print("\nSUMMARY SECTIONS")
+    for name, league in LEAGUES.items():
 
-        for key in summary.keys():
+        try:
+            test_league(name, league)
 
-            value = summary[key]
+        except Exception as e:
 
-            if isinstance(value, list):
-
-                print(
-                    key,
-                    ":",
-                    len(value)
-                )
-
-            elif isinstance(value, dict):
-
-                print(
-                    key,
-                    ":",
-                    list(value.keys())
-                )
-
-            else:
-
-                print(
-                    key,
-                    ":",
-                    type(value).__name__
-                )
+            print(
+                "RESULT: ERROR",
+                type(e).__name__,
+                str(e)
+            )
 
 
 if __name__ == "__main__":
