@@ -1,41 +1,39 @@
-import json
 import requests
 
 
 BASE_URL = "https://www.thesportsdb.com/api/v1/json/123"
 
-EVENTS = {
-    "Racing vs Villarreal": "2506178",
-    "Espanyol vs Levante": "2506174",
-    "Deportivo Alaves vs Getafe": "2506176",
-    "Sevilla vs Rayo Vallecano": "2506172",
-}
+EVENT_ID = "2506178"
+
+
+def get_events():
+
+    response = requests.get(
+        f"{BASE_URL}/lookuptimeline.php",
+        params={"id": EVENT_ID},
+        timeout=30,
+    )
+
+    response.raise_for_status()
+
+    return response.json().get("timeline") or []
 
 
 def main():
 
-    for name, event_id in EVENTS.items():
+    for request_number in range(1, 4):
 
         print("\n" + "=" * 60)
-        print(name)
-        print("Event ID:", event_id)
+        print("الطلب رقم:", request_number)
 
-        response = requests.get(
-            f"{BASE_URL}/lookuptimeline.php",
-            params={"id": event_id},
-            timeout=30,
-        )
+        events = get_events()
 
-        response.raise_for_status()
+        print("عدد الأحداث:", len(events))
 
-        data = response.json()
-
-        timeline = data.get("timeline") or []
-
-        print("عدد الأحداث:", len(timeline))
-
-        for event in timeline:
+        for event in events:
             print(
+                event.get("idTimeline"),
+                "|",
                 event.get("intTime"),
                 "|",
                 event.get("strTimeline"),
