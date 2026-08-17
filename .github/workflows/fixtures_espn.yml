@@ -48,8 +48,12 @@ jobs:
       # =====================================================
 
       - name: سحب مواعيد واحداث المباريات 
-        run: python src/fixtures_espn.py
+        run: python src/restore_teams_espn.py
         env:
           
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+
+
+
+          
