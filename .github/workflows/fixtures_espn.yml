@@ -1,59 +1,40 @@
-name: سحب مواعيد واحداث المباريات 
+name: كود سحب المواعيد والاحداث
 
 on:
+  schedule:
+    # كل 5 دقيقة للمباريات العادية
+    - cron: "*/5 * * * *"
+
   workflow_dispatch:
 
-  schedule:
-    - cron: "30 * * * *"
-
-
 jobs:
-
-  football-pipeline:
-
+  fixtures:
     runs-on: ubuntu-latest
 
+    timeout-minutes: 10
+
     steps:
-
-      # =====================================================
-      # Checkout
-      # =====================================================
-
       - name: Checkout repository
         uses: actions/checkout@v4
-
-
-      # =====================================================
-      # Python
-      # =====================================================
 
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
-
-
-      # =====================================================
-      # Dependencies
-      # =====================================================
+          python-version: "3.11"
+          cache: "pip"
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install requests
+          if [ -f requirements.txt ]; then
+            pip install -r requirements.txt
+          else
+            pip install requests
+          fi
 
-
-      # =====================================================
-      # Football Data
-      # =====================================================
-
-      - name: سحب مواعيد واحداث المباريات 
-        run: python src/fixtures_espn.py
+      - name: كود سحب المواعيد والاحداث
         env:
-          
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
-
-
-
-          
+        run: |
+          python fixtures_espn.py
