@@ -1,426 +1,394 @@
+# src/import_players_espn.py
+
 import os
+import sys
 import time
 import requests
+from typing import Any, Dict, List, Optional
 
-SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+from supabase import create_client, Client
 
-REQUEST_TIMEOUT = 30
-MAX_RETRIES = 4
-BATCH_SIZE = 500
 
-HEADERS = {
-    "apikey": SUPABASE_KEY,
-    "Authorization": f"Bearer {SUPABASE_KEY}",
-    "Content-Type": "application/json",
-    "Prefer": "resolution=merge-duplicates,return=minimal",
+# ============================================================
+# الإعدادات
+# ============================================================
+
+SUPABASE_URL = os.environ["SUPABASE_URL"]
+SUPABASE_KEY = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
+
+supabase: Client = create_client(
+    SUPABASE_URL,
+    SUPABASE_KEY,
+)
+
+SOURCE = "espn"
+
+# الدوريات الخمس الكبرى
+LEAGUES = {
+    "eng.1": "الدوري الإنجليزي",
+    "esp.1": "الدوري الإسباني",
+    "ita.1": "الدوري الإيطالي",
+    "ger.1": "الدوري الألماني",
+    "fra.1": "الدوري الفرنسي",
 }
 
-
-def request(method, table, params=None, body=None):
-    url = f"{SUPABASE_URL}/rest/v1/{table}"
-
-    for attempt in range(1, MAX_RETRIES + 1):
-        try:
-            response = requests.request(
-                method,
-                url,
-                headers=HEADERS,
-                params=params,
-                json=body,
-                timeout=REQUEST_TIMEOUT,
-            )
-
-            if response.status_code in {200, 201, 204}:
-                return response.json() if response.content else []
-
-            if response.status_code in {408, 409, 429, 500, 502, 503, 504}:
-                raise RuntimeError(
-                    f"HTTP {response.status_code}: {response.text[:300]}"
-                )
-
-            raise RuntimeError(
-                f"HTTP {response.status_code}: {response.text[:500]}"
-            )
-
-        except Exception:
-            if attempt == MAX_RETRIES:
-                raise
-            time.sleep(2 ** (attempt - 1))
-
-    return []
+ESPN_BASE = "https://site.api.espn.com/apis/site/v2/sports/soccer"
 
 
-def chunks(items, size=BATCH_SIZE):
-    for index in range(0, len(items), size):
-        yield items[index:index + size]
+# ============================================================
+# أدوات مساعدة
+# ============================================================
+
+def log(message: str):
+    print(f"[PLAYERS] {message}", flush=True)
 
 
-def get_all(table, select):
-    rows = []
-    offset = 0
+def get_json(url: str, params: Optional[Dict[str, Any]] = None):
+    response = requests.get(
+        url,
+        params=params,
+        timeout=30,
+        headers={
+            "User-Agent": "football_news/1.0"
+        },
+    )
 
-    while True:
-        batch = request(
-            "GET",
-            table,
-            params={
-                "select": select,
-                "order": "id.asc",
-                "limit": str(BATCH_SIZE),
-                "offset": str(offset),
-            },
-        )
-
-        rows.extend(batch)
-
-        if len(batch) < BATCH_SIZE:
-            break
-
-        offset += BATCH_SIZE
-
-    return rows
+    response.raise_for_status()
+    return response.json()
 
 
-def athlete_from_participant(participant):
-    if not isinstance(participant, dict):
-        return {}
-
-    athlete = participant.get("athlete")
-
-    if isinstance(athlete, dict):
-        return athlete
-
-    return participant if participant.get("id") else {}
-
-
-def athlete_name(athlete):
-    if not isinstance(athlete, dict):
+def normalize_name(value: Optional[str]) -> str:
+    if not value:
         return ""
 
-    return (
+    return " ".join(str(value).strip().split())
+
+
+def get_player_id(athlete: Dict[str, Any]) -> Optional[str]:
+    athlete_id = athlete.get("id")
+
+    if athlete_id is None:
+        return None
+
+    return str(athlete_id)
+
+
+# ============================================================
+# جلب فرق الدوري من ESPN
+# ============================================================
+
+def get_league_teams(league_code: str) -> List[Dict[str, Any]]:
+    url = f"{ESPN_BASE}/{league_code}/teams"
+
+    data = get_json(url)
+
+    sports = data.get("sports", [])
+
+    if not sports:
+        return []
+
+    leagues = sports[0].get("leagues", [])
+
+    if not leagues:
+        return []
+
+    teams = leagues[0].get("teams", [])
+
+    result = []
+
+    for item in teams:
+        team = item.get("team", item)
+
+        if team.get("id"):
+            result.append(team)
+
+    return result
+
+
+# ============================================================
+# البحث عن الفريق الموجود في قاعدة البيانات
+# ============================================================
+
+def find_db_team(espn_team_id: str):
+    result = (
+        supabase
+        .table("teams")
+        .select("id,source,source_team_id,name,name_ar,league")
+        .eq("source", SOURCE)
+        .eq("source_team_id", espn_team_id)
+        .limit(1)
+        .execute()
+    )
+
+    if result.data:
+        return result.data[0]
+
+    # احتياطًا لو المصدر مختلف
+    result = (
+        supabase
+        .table("teams")
+        .select("id,source,source_team_id,name,name_ar,league")
+        .eq("source_team_id", espn_team_id)
+        .limit(1)
+        .execute()
+    )
+
+    if result.data:
+        return result.data[0]
+
+    return None
+
+
+# ============================================================
+# جلب قائمة لاعبي الفريق
+# ============================================================
+
+def get_team_roster(
+    league_code: str,
+    team_id: str
+) -> List[Dict[str, Any]]:
+
+    url = f"{ESPN_BASE}/{league_code}/teams/{team_id}/roster"
+
+    data = get_json(url)
+
+    athletes = data.get("athletes", [])
+
+    # بعض استجابات ESPN تكون مقسمة إلى مجموعات
+    if not athletes:
+        groups = data.get("groups", [])
+
+        for group in groups:
+            athletes.extend(group.get("athletes", []))
+
+    return athletes
+
+
+# ============================================================
+# تجهيز بيانات اللاعب
+# ============================================================
+
+def build_player(
+    athlete: Dict[str, Any],
+    db_team: Dict[str, Any]
+) -> Optional[Dict[str, Any]]:
+
+    player_id = get_player_id(athlete)
+
+    if not player_id:
+        return None
+
+    name = normalize_name(
         athlete.get("displayName")
         or athlete.get("fullName")
         or athlete.get("shortName")
-        or athlete.get("name")
-        or ""
     )
 
+    if not name:
+        return None
 
-def sync_players(events, team_map):
-    records = {}
+    position = None
 
-    for event in events:
-        raw = event.get("raw_event") or {}
-        participants = raw.get("participants") or []
+    position_data = athlete.get("position")
 
-        team_source_id = (
-            str(event["team_id"])
-            if event.get("team_id")
-            else None
+    if isinstance(position_data, dict):
+        position = (
+            position_data.get("displayName")
+            or position_data.get("name")
+            or position_data.get("abbreviation")
         )
+    elif isinstance(position_data, str):
+        position = position_data
 
-        team_db_id = team_map.get(team_source_id)
-
-        for participant in participants:
-            athlete = athlete_from_participant(participant)
-            player_id = athlete.get("id")
-            name = athlete_name(athlete)
-
-            if player_id is None or not name:
-                continue
-
-            source_player_id = str(player_id)
-
-            records[source_player_id] = {
-                "source": "espn",
-                "source_player_id": source_player_id,
-                "name": name,
-                "team_id": team_db_id,
-            }
-
-    saved = list(records.values())
-
-    for batch in chunks(saved):
-        request(
-            "POST",
-            "players",
-            params={
-                "on_conflict": "source,source_player_id",
-            },
-            body=batch,
-        )
-
-    return len(saved)
-
-
-def load_players():
-    rows = get_all(
-        "players",
-        "id,source,source_player_id,name,name_ar,team_id",
-    )
+    photo_url = athlete.get("headshot")
 
     return {
-        str(row["source_player_id"]): row
-        for row in rows
-        if row.get("source") == "espn"
+        "source": SOURCE,
+        "source_player_id": player_id,
+        "name": name,
+        "name_ar": None,
+        "team_id": db_team["id"],
+        "position": position,
+        "photo_url": photo_url,
     }
 
 
-def resolve_player(athlete, player_map):
-    if not athlete.get("id"):
-        return None, ""
+# ============================================================
+# فحص اللاعب قبل الإضافة
+# ============================================================
 
-    player_id = str(athlete["id"])
-    row = player_map.get(player_id)
+def player_exists(source_player_id: str) -> bool:
 
-    if row:
-        return (
-            player_id,
-            row.get("name_ar")
-            or row.get("name")
-            or athlete_name(athlete),
-        )
+    result = (
+        supabase
+        .table("players")
+        .select("id")
+        .eq("source", SOURCE)
+        .eq("source_player_id", source_player_id)
+        .limit(1)
+        .execute()
+    )
 
-    return player_id, athlete_name(athlete)
-
-
-def update_events(events, player_map, team_ar_map):
-    updates = []
-
-    for event in events:
-        raw = event.get("raw_event") or {}
-        participants = raw.get("participants") or []
-
-        athletes = [
-            athlete_from_participant(item)
-            for item in participants
-        ]
-        athletes = [
-            item for item in athletes
-            if item.get("id")
-        ]
-
-        team_source_id = (
-            str(event["team_id"])
-            if event.get("team_id")
-            else None
-        )
-
-        team_name = (
-            team_ar_map.get(team_source_id)
-            or event.get("team_name")
-            or ""
-        )
-
-        player_id = player_name = None
-        assist_id = assist_name = None
-        player_in_id = player_in_name = None
-        player_out_id = player_out_name = None
-
-        if event.get("event_type") == "substitution":
-            # ESPN participants: الداخل أولًا، الخارج ثانيًا.
-            if len(athletes) >= 1:
-                player_in_id, player_in_name = resolve_player(
-                    athletes[0], player_map
-                )
-
-            if len(athletes) >= 2:
-                player_out_id, player_out_name = resolve_player(
-                    athletes[1], player_map
-                )
-
-        else:
-            if len(athletes) >= 1:
-                player_id, player_name = resolve_player(
-                    athletes[0], player_map
-                )
-
-            if len(athletes) >= 2:
-                assist_id, assist_name = resolve_player(
-                    athletes[1], player_map
-                )
-
-        updates.append({
-            "id": event["id"],
-            "match_id": event["match_id"],
-            "source": event["source"],
-            "source_event_key": event["source_event_key"],
-            "event_type": event["event_type"],
-            "minute": event.get("minute"),
-            "extra_time": event.get("extra_time"),
-            "team_id": event.get("team_id"),
-            "team_name": team_name,
-            "player_id": player_id,
-            "player_name": player_name or "",
-            "assist_player_id": assist_id,
-            "assist_player_name": assist_name or "",
-            "player_out_id": player_out_id,
-            "player_out_name": player_out_name or "",
-            "player_in_id": player_in_id,
-            "player_in_name": player_in_name or "",
-            "card": event.get("card"),
-            "home_score": event.get("home_score"),
-            "away_score": event.get("away_score"),
-            "raw_event": raw,
-        })
-
-    for batch in chunks(updates):
-        request(
-            "POST",
-            "match_events",
-            params={
-                "on_conflict": "source,source_event_key",
-            },
-            body=batch,
-        )
-
-    return len(updates)
+    return bool(result.data)
 
 
-def update_matches(matches, team_ar_map):
-    updates = []
+# ============================================================
+# إضافة اللاعب بدون تكرار
+# ============================================================
 
-    for match in matches:
-        home_source_id = (
-            str(match["home_team_id"])
-            if match.get("home_team_id")
-            else None
-        )
+def insert_player(player: Dict[str, Any]) -> bool:
 
-        away_source_id = (
-            str(match["away_team_id"])
-            if match.get("away_team_id")
-            else None
-        )
+    if player_exists(player["source_player_id"]):
+        return False
 
-        updates.append({
-            "id": match["id"],
-            "source": match["source"],
-            "source_match_id": match["source_match_id"],
-            "competition_id": match.get("competition_id"),
-            "competition_name": match.get("competition_name"),
-            "season": match.get("season"),
-            "kickoff_utc": match.get("kickoff_utc"),
-            "kickoff_local": match.get("kickoff_local"),
-            "timezone": match.get("timezone"),
-            "home_team_id": match.get("home_team_id"),
-            "home_team_name": (
-                team_ar_map.get(home_source_id)
-                or match.get("home_team_name")
-                or ""
-            ),
-            "away_team_id": match.get("away_team_id"),
-            "away_team_name": (
-                team_ar_map.get(away_source_id)
-                or match.get("away_team_name")
-                or ""
-            ),
-            "status": match.get("status"),
-            "home_score": match.get("home_score"),
-            "away_score": match.get("away_score"),
-            "venue": match.get("venue"),
-            "home_team_db_id": match.get("home_team_db_id"),
-            "away_team_db_id": match.get("away_team_db_id"),
-        })
+    supabase \
+        .table("players") \
+        .insert(player) \
+        .execute()
 
-    for batch in chunks(updates):
-        request(
-            "POST",
-            "matches",
-            params={
-                "on_conflict": "source,source_match_id",
-            },
-            body=batch,
-        )
+    return True
 
-    return len(updates)
 
+# ============================================================
+# تشغيل الاستيراد
+# ============================================================
 
 def main():
-    if not SUPABASE_URL or not SUPABASE_KEY:
-        raise RuntimeError(
-            "SUPABASE_URL and SUPABASE_KEY are required"
-        )
 
-    teams = get_all(
-        "teams",
-        "id,source,source_team_id,name,name_ar",
-    )
+    log("=" * 60)
+    log("IMPORT PLAYERS - ESPN")
+    log("الدوريات الخمس الكبرى")
+    log("=" * 60)
 
-    team_map = {
-        str(row["source_team_id"]): row["id"]
-        for row in teams
-        if row.get("source") == "espn"
-    }
+    total_found = 0
+    total_added = 0
+    total_existing = 0
+    total_skipped = 0
 
-    team_ar_map = {
-        str(row["source_team_id"]): (
-            row.get("name_ar") or row.get("name")
-        )
-        for row in teams
-        if row.get("source") == "espn"
-    }
+    # منع تكرار نفس اللاعب داخل نفس التشغيل
+    seen_players = set()
 
-    events = get_all(
-        "match_events",
-        (
-            "id,match_id,source,source_event_key,event_type,"
-            "minute,extra_time,team_id,team_name,player_id,player_name,"
-            "assist_player_id,assist_player_name,player_out_id,"
-            "player_out_name,player_in_id,player_in_name,card,"
-            "home_score,away_score,raw_event"
-        ),
-    )
+    for league_code, league_name in LEAGUES.items():
 
-    events = [
-        event
-        for event in events
-        if event.get("source") == "espn"
-    ]
+        log("")
+        log(f"🏆 {league_name} ({league_code})")
 
-    players_synced = sync_players(
-        events,
-        team_map,
-    )
+        try:
+            teams = get_league_teams(league_code)
 
-    player_map = load_players()
+        except Exception as exc:
+            log(f"❌ فشل جلب فرق الدوري: {exc}")
+            continue
 
-    events_updated = update_events(
-        events,
-        player_map,
-        team_ar_map,
-    )
+        log(f"الفرق الموجودة في ESPN: {len(teams)}")
 
-    matches = get_all(
-        "matches",
-        (
-            "id,source,source_match_id,competition_id,competition_name,"
-            "season,kickoff_utc,kickoff_local,timezone,home_team_id,"
-            "home_team_name,away_team_id,away_team_name,status,home_score,"
-            "away_score,venue,home_team_db_id,away_team_db_id"
-        ),
-    )
+        for team in teams:
 
-    matches = [
-        match
-        for match in matches
-        if match.get("source") == "espn"
-    ]
+            espn_team_id = str(team.get("id"))
 
-    matches_updated = update_matches(
-        matches,
-        team_ar_map,
-    )
+            db_team = find_db_team(espn_team_id)
 
-    print(
-        "تم تحديث الأسماء: "
-        f"لاعبين={players_synced}, "
-        f"أحداث={events_updated}, "
-        f"مباريات={matches_updated}",
-        flush=True,
-    )
+            if not db_team:
+                log(
+                    f"⚠️ الفريق غير موجود في قاعدة البيانات: "
+                    f"{team.get('displayName')} "
+                    f"(ESPN ID: {espn_team_id})"
+                )
+                continue
+
+            team_name = (
+                db_team.get("name_ar")
+                or db_team.get("name")
+                or team.get("displayName")
+            )
+
+            log(f"  👥 {team_name}")
+
+            try:
+                roster = get_team_roster(
+                    league_code,
+                    espn_team_id
+                )
+
+            except Exception as exc:
+                log(
+                    f"    ❌ فشل جلب اللاعبين: {exc}"
+                )
+                continue
+
+            log(f"    اللاعبين: {len(roster)}")
+
+            for athlete in roster:
+
+                player_id = get_player_id(athlete)
+
+                if not player_id:
+                    total_skipped += 1
+                    continue
+
+                # منع تكرار اللاعب داخل التشغيل
+                if player_id in seen_players:
+                    continue
+
+                seen_players.add(player_id)
+
+                total_found += 1
+
+                player = build_player(
+                    athlete,
+                    db_team
+                )
+
+                if not player:
+                    total_skipped += 1
+                    continue
+
+                try:
+
+                    added = insert_player(player)
+
+                    if added:
+                        total_added += 1
+
+                        log(
+                            f"    ✅ {player['name']}"
+                        )
+
+                    else:
+                        total_existing += 1
+
+                        log(
+                            f"    ↩️ موجود: {player['name']}"
+                        )
+
+                except Exception as exc:
+
+                    log(
+                        f"    ❌ خطأ في إضافة "
+                        f"{player['name']}: {exc}"
+                    )
+
+            # عدم الضغط على ESPN بسرعة
+            time.sleep(0.3)
+
+    log("")
+    log("=" * 60)
+    log("اكتمل الاستيراد")
+    log("=" * 60)
+    log(f"إجمالي اللاعبين المكتشفين: {total_found}")
+    log(f"تمت إضافة: {total_added}")
+    log(f"كانوا موجودين: {total_existing}")
+    log(f"تم تخطي: {total_skipped}")
+    log("=" * 60)
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+
+    except KeyboardInterrupt:
+        log("تم إيقاف البرنامج.")
+
+    except Exception as exc:
+        log(f"❌ خطأ قاتل: {exc}")
+        sys.exit(1)
