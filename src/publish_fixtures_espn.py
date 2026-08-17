@@ -1,7 +1,7 @@
-import  os
+import os
 import requests
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 
@@ -15,14 +15,17 @@ SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
-TIMEZONE = ZoneInfo("Africa/Cairo") 
+TIMEZONE = ZoneInfo("Africa/Cairo")
 
 MATCHES_TABLE = "matches"
 TEAMS_TABLE = "teams"
+NEWS_EVENTS_TABLE = "news_events"
+
+REQUEST_TIMEOUT = 30
 
 
 # ============================================================
-# ARABIC COMPETITION NAMES
+# COMPETITIONS
 # ============================================================
 
 COMPETITION_AR = {
@@ -35,7 +38,7 @@ COMPETITION_AR = {
 
 
 # ============================================================
-# STATUS TRANSLATIONS
+# STATUS
 # ============================================================
 
 STATUS_AR = {
@@ -63,7 +66,7 @@ SUPABASE_HEADERS = {
 
 
 # ============================================================
-# VALIDATION
+# VALIDATE ENVIRONMENT
 # ============================================================
 
 def validate_environment():
@@ -100,11 +103,10 @@ def supabase_get(table, params=None):
         url,
         headers=SUPABASE_HEADERS,
         params=params or {},
-        timeout=30,
+        timeout=REQUEST_TIMEOUT,
     )
 
     if response.status_code != 200:
-
         raise Exception(
             f"Supabase GET failed "
             f"{response.status_code}: "
@@ -115,25 +117,32 @@ def supabase_get(table, params=None):
 
 
 # ============================================================
-# SUPABASE UPDATE
+# SUPABASE INSERT
 # ============================================================
 
-def supabase_update(table, params, payload):
+def supabase_insert(
+    table,
+    payload,
+):
 
     url = f"{SUPABASE_URL}/rest/v1/{table}"
 
-    response = requests.patch(
+    headers = {
+        **SUPABASE_HEADERS,
+        "Prefer": "return=minimal",
+    }
+
+    response = requests.post(
         url,
-        headers=SUPABASE_HEADERS,
-        params=params,
+        headers=headers,
         json=payload,
-        timeout=30,
+        timeout=REQUEST_TIMEOUT,
     )
 
-    if response.status_code not in [200, 204]:
+    if response.status_code not in [200, 201, 204]:
 
         raise Exception(
-            f"Supabase UPDATE failed "
+            f"Supabase INSERT failed "
             f"{response.status_code}: "
             f"{response.text}"
         )
@@ -142,13 +151,13 @@ def supabase_update(table, params, payload):
 
 
 # ============================================================
-# GET ARABIC TEAM NAMES
+# GET TEAMS
 # ============================================================
 
 def get_teams_map():
 
     params = {
-        "select": "source_team_id,name,name_ar"
+        "select": "source,source_team_id,name,name_ar"
     }
 
     rows = supabase_get(
@@ -160,11 +169,21 @@ def get_teams_map():
 
     for row in rows:
 
-        source_team_id = str(
-            row.get("source_team_id")
+        source = row.get("source") or "espn"
+
+        source_team_id = row.get(
+            "source_team_id"
         )
 
-        teams[source_team_id] = {
+        if source_team_id is None:
+            continue
+
+        teams[
+            (
+                source,
+                str(source_team_id)
+            )
+        ] = {
             "name": row.get("name"),
             "name_ar": row.get("name_ar"),
         }
@@ -173,16 +192,24 @@ def get_teams_map():
 
 
 # ============================================================
-# TRANSLATE TEAM
+# TEAM ARABIC NAME
 # ============================================================
 
-def get_team_arabic_name(team_id, fallback_name, teams):
+def get_team_arabic_name(
+    source,
+    team_id,
+    fallback_name,
+    teams,
+):
 
-    if team_id:
+    if team_id is not None:
 
-        team = teams.get(
+        key = (
+            source or "espn",
             str(team_id)
         )
+
+        team = teams.get(key)
 
         if team:
 
@@ -196,163 +223,155 @@ def get_team_arabic_name(team_id, fallback_name, teams):
 
 
 # ============================================================
-# COMPETITION NAME
+# COMPETITION ARABIC
 # ============================================================
 
-def get_competition_arabic_name(name):
+def get_competition_arabic_name(
+    competition_name
+):
 
     return COMPETITION_AR.get(
-        name,
-        name or "بطولة غير محددة"
+        competition_name,
+        competition_name or "بطولة غير محددة",
     )
 
 
 # ============================================================
-# STATUS
+# PARSE DATETIME
 # ============================================================
 
-def get_status_arabic(status):
+def parse_datetime(value):
 
-    return STATUS_AR.get(
-        status,
-        status or "غير معروف"
+    if not value:
+        return None
+
+    return datetime.fromisoformat(
+        value.replace(
+            "Z",
+            "+00:00",
+        )
     )
 
 
 # ============================================================
-# FORMAT TIME - 12 HOUR
+# MATCH DATE
 # ============================================================
 
-def format_time(kickoff_local):
+def get_match_date(
+    kickoff_local
+):
 
-    if not kickoff_local:
-        return "غير محدد"
+    dt = parse_datetime(
+        kickoff_local
+    )
 
-    try:
+    if not dt:
+        return None
 
-        dt = datetime.fromisoformat(
-            kickoff_local.replace(
-                "Z",
-                "+00:00"
-            )
-        )
+    return dt.astimezone(
+        TIMEZONE
+    )
 
-        dt = dt.astimezone(TIMEZONE)
 
-        hour = dt.hour
-        minute = dt.minute
+# ============================================================
+# MATCH DAY
+# ============================================================
 
-        if hour == 0:
+def get_match_day(
+    kickoff_local
+):
 
-            hour_12 = 12
-            period = "صباحًا"
+    dt = get_match_date(
+        kickoff_local
+    )
 
-        elif hour < 12:
+    if not dt:
+        return "unknown"
 
-            hour_12 = hour
-            period = "صباحًا"
+    today = datetime.now(
+        TIMEZONE
+    ).date()
 
-        elif hour == 12:
+    tomorrow = today + timedelta(
+        days=1
+    )
 
-            hour_12 = 12
-            period = "ظهرًا"
+    if dt.date() == today:
+        return "today"
 
-        else:
+    if dt.date() == tomorrow:
+        return "tomorrow"
 
-            hour_12 = hour - 12
-            period = "مساءً"
-
-        return (
-            f"{hour_12:02d}:"
-            f"{minute:02d} "
-            f"{period}"
-        )
-
-    except Exception:
-
-        return str(kickoff_local)
+    return "other"
 
 
 # ============================================================
 # FORMAT DATE
 # ============================================================
 
-def format_date(kickoff_local):
+def format_date(
+    kickoff_local
+):
 
-    if not kickoff_local:
-        return ""
+    dt = get_match_date(
+        kickoff_local
+    )
 
-    try:
+    if not dt:
+        return "غير محدد"
 
-        dt = datetime.fromisoformat(
-            kickoff_local.replace(
-                "Z",
-                "+00:00"
-            )
-        )
-
-        dt = dt.astimezone(TIMEZONE)
-
-        return dt.strftime(
-            "%Y-%m-%d"
-        )
-
-    except Exception:
-
-        return ""
+    return dt.strftime(
+        "%Y-%m-%d"
+    )
 
 
 # ============================================================
-# DETERMINE MATCH DAY
+# FORMAT TIME
 # ============================================================
 
-def get_match_day(kickoff_local):
+def format_time(
+    kickoff_local
+):
 
-    if not kickoff_local:
-        return "unknown"
+    dt = get_match_date(
+        kickoff_local
+    )
 
-    try:
+    if not dt:
+        return "غير محدد"
 
-        dt = datetime.fromisoformat(
-            kickoff_local.replace(
-                "Z",
-                "+00:00"
-            )
-        )
+    hour = dt.hour
+    minute = dt.minute
 
-        dt = dt.astimezone(TIMEZONE)
+    if hour == 0:
 
-        now = datetime.now(
-            TIMEZONE
-        )
+        hour_12 = 12
+        period = "صباحًا"
 
-        today = now.date()
+    elif hour < 12:
 
-        tomorrow = (
-            today.replace()
-        )
+        hour_12 = hour
+        period = "صباحًا"
 
-        from datetime import timedelta
+    elif hour == 12:
 
-        tomorrow = today + timedelta(
-            days=1
-        )
+        hour_12 = 12
+        period = "ظهرًا"
 
-        if dt.date() == today:
-            return "today"
+    else:
 
-        if dt.date() == tomorrow:
-            return "tomorrow"
+        hour_12 = hour - 12
+        period = "مساءً"
 
-        return "other"
-
-    except Exception:
-
-        return "unknown"
+    return (
+        f"{hour_12:02d}:"
+        f"{minute:02d} "
+        f"{period}"
+    )
 
 
 # ============================================================
-# MATCH SCORE
+# SCORE
 # ============================================================
 
 def get_score(match):
@@ -371,123 +390,167 @@ def get_score(match):
     ):
         return None
 
-    return (
-        int(home_score),
-        int(away_score)
-    )
+    try:
+
+        return (
+            int(home_score),
+            int(away_score),
+        )
+
+    except (
+        TypeError,
+        ValueError,
+    ):
+
+        return None
 
 
 # ============================================================
-# MESSAGE TYPE
+# MESSAGE TITLE
 # ============================================================
 
 def get_message_title(
-    match,
-    previous_status=None,
+    match
 ):
 
-    status = match.get(
-        "status"
+    status = (
+        match.get("status")
+        or ""
+    ).upper()
+
+    day = get_match_day(
+        match.get(
+            "kickoff_local"
+        )
     )
 
     if status == "FINISHED":
-
-        return "  انتهت المباراة 🔔🕛"
+        return "🏁 انتهت المباراة"
 
     if status in [
         "IN_PLAY",
         "PAUSED",
     ]:
+        return "🔴 مباراة جارية الآن"
 
-        return "🔴 مباراة جارية الان"
+    if status == "POSTPONED":
+        return "⚠️ مباراة مؤجلة"
 
-    if previous_status in [
-        "TIMED",
-        "SCHEDULED",
-    ] and status == "IN_PLAY":
+    if status == "SUSPENDED":
+        return "⚠️ مباراة متوقفة"
 
-        return "🚨 انطلاق المباراة"
-
-    day = get_match_day(
-        match.get("kickoff_local")
-    )
+    if status == "CANCELLED":
+        return "❌ مباراة ألغيت"
 
     if day == "today":
-
         return "📅 مباراة اليوم"
 
     if day == "tomorrow":
-
         return "📅 مباراة الغد"
 
     return "⚽ مباراة"
 
 
 # ============================================================
-# BUILD MATCH MESSAGE
+# BUILD MESSAGE
 # ============================================================
+
 def build_match_message(
     match,
     teams,
-    previous_status=None,
 ):
 
-    competition = get_competition_arabic_name(
-        match.get("competition_name")
+    source = (
+        match.get("source")
+        or "espn"
+    )
+
+    competition = (
+        get_competition_arabic_name(
+            match.get(
+                "competition_name"
+            )
+        )
     )
 
     home = get_team_arabic_name(
-        match.get("home_team_id"),
-        match.get("home_team_name"),
+        source,
+        match.get(
+            "home_team_id"
+        ),
+        match.get(
+            "home_team_name"
+        ),
         teams,
     )
 
     away = get_team_arabic_name(
-        match.get("away_team_id"),
-        match.get("away_team_name"),
+        source,
+        match.get(
+            "away_team_id"
+        ),
+        match.get(
+            "away_team_name"
+        ),
         teams,
     )
 
-    status = match.get("status")
-
-    match_time = format_time(
-        match.get("kickoff_local")
+    kickoff = match.get(
+        "kickoff_local"
     )
 
     match_date = format_date(
-        match.get("kickoff_local")
+        kickoff
     )
 
-    day = get_match_day(
-        match.get("kickoff_local")
+    match_time = format_time(
+        kickoff
+    )
+
+    title = get_message_title(
+        match
+    )
+
+    status = (
+        match.get("status")
+        or ""
+    ).upper()
+
+    score = get_score(
+        match
     )
 
     # ========================================================
-    # TITLE
+    # FINISHED
     # ========================================================
 
-    if status == "FINISHED":
-        title = "� انتهت المباراة "
+    if status == "FINISHED" and score:
 
-    elif status in ["IN_PLAY", "PAUSED"]:
-        title = "🔴 مباراة جارية الآن"
+        home_score, away_score = score
 
-    elif day == "today":
-        title = "📅 مباراة اليوم"
-
-    elif day == "tomorrow":
-        title = "📅 مباراة الغد"
-
-    else:
-        title = "⚽ مباراة"
+        return (
+            f"{title}\n"
+            f"\n"
+            f"🏆 {competition}\n"
+            f"\n"
+            f"⚽ {home} 🆚 {away}\n"
+            f"\n"
+            f"📆{match_date}\n"
+            f"\n"
+            f"🏁 النتيجة: "
+            f"{home_score} - {away_score}\n"
+            f"\n"
+            f"#كرة_القدم #Football"
+        )
 
     # ========================================================
-    # FINISHED MATCH
+    # LIVE
     # ========================================================
 
-    if status == "FINISHED":
-
-        score = get_score(match)
+    if status in [
+        "IN_PLAY",
+        "PAUSED",
+    ]:
 
         if score:
 
@@ -498,38 +561,12 @@ def build_match_message(
                 f"\n"
                 f"🏆 {competition}\n"
                 f"\n"
-                f" {home} 🆚 {away}\n"
+                f"⚽ {home} 🆚 {away}\n"
                 f"\n"
                 f"📆{match_date}\n"
                 f"\n"
-                f"🏁 النتيجة: "
-                f"{home_score} - {away_score}\n"
-                f"\n"
-                f"#كرة_القدم #Football"
-            )
-
-    # ========================================================
-    # LIVE MATCH
-    # ========================================================
-
-    if status in ["IN_PLAY", "PAUSED"]:
-
-        score = get_score(match)
-
-        if score:
-
-            home_score, away_score = score
-
-            return (
-                f"{title}\n"
-                f"\n"
-                f"🏆 {competition}\n"
-                f"\n"
-                f" {home} 🆚 {away}\n"
-                f"\n"
-                f"📆{match_date}\n"
-                f"\n"
-                f"⏰ {match_time} بتوقيت القاهرة\n"
+                f"⏰ {match_time} "
+                f"بتوقيت القاهرة\n"
                 f"\n"
                 f"📊 النتيجة الحالية: "
                 f"{home_score} - {away_score}\n"
@@ -538,7 +575,7 @@ def build_match_message(
             )
 
     # ========================================================
-    # UPCOMING MATCH
+    # UPCOMING
     # ========================================================
 
     return (
@@ -546,20 +583,24 @@ def build_match_message(
         f"\n"
         f"🏆 {competition}\n"
         f"\n"
-        f" {home} 🆚 {away}\n"
+        f"⚽ {home} 🆚 {away}\n"
         f"\n"
         f"📆{match_date}\n"
         f"\n"
-        f"⏰ {match_time} بتوقيت القاهرة\n"
+        f"⏰ {match_time} "
+        f"بتوقيت القاهرة\n"
         f"\n"
         f"#كرة_القدم #Football"
     )
+
 
 # ============================================================
 # TELEGRAM SEND
 # ============================================================
 
-def send_telegram_message(message):
+def send_telegram_message(
+    message
+):
 
     url = (
         "https://api.telegram.org/bot"
@@ -575,7 +616,7 @@ def send_telegram_message(message):
     response = requests.post(
         url,
         json=payload,
-        timeout=30,
+        timeout=REQUEST_TIMEOUT,
     )
 
     if response.status_code != 200:
@@ -591,8 +632,7 @@ def send_telegram_message(message):
     if not data.get("ok"):
 
         raise Exception(
-            f"Telegram error: "
-            f"{data}"
+            f"Telegram error: {data}"
         )
 
     return True
@@ -609,8 +649,6 @@ def get_target_matches():
     )
 
     today = now.date()
-
-    from datetime import timedelta
 
     tomorrow = today + timedelta(
         days=1
@@ -630,15 +668,8 @@ def get_target_matches():
         tzinfo=TIMEZONE,
     )
 
-    day_after = tomorrow + timedelta(
+    end = end + timedelta(
         days=1
-    )
-
-    end = datetime(
-        day_after.year,
-        day_after.month,
-        day_after.day,
-        tzinfo=TIMEZONE,
     )
 
     params = {
@@ -651,9 +682,10 @@ def get_target_matches():
         "order": "kickoff_local.asc",
     }
 
-    # Supabase REST does not accept the
-    # combined filter above in a single value.
-    # Therefore use two explicit filters.
+    # --------------------------------------------------------
+    # Supabase REST handles each filter separately.
+    # We fetch from today onward and filter locally.
+    # --------------------------------------------------------
 
     params = {
         "select": "*",
@@ -672,12 +704,10 @@ def get_target_matches():
 
     for match in rows:
 
-        kickoff = match.get(
-            "kickoff_local"
-        )
-
         day = get_match_day(
-            kickoff
+            match.get(
+                "kickoff_local"
+            )
         )
 
         if day in [
@@ -685,120 +715,40 @@ def get_target_matches():
             "tomorrow",
         ]:
 
-            target.append(match)
+            target.append(
+                match
+            )
 
     return target
 
 
 # ============================================================
-# GET MATCH BY ID
+# EVENT TYPE
 # ============================================================
 
-def get_match_by_id(match_id):
-
-    params = {
-        "select": "*",
-        "id": f"eq.{match_id}",
-        "limit": "1",
-    }
-
-    rows = supabase_get(
-        MATCHES_TABLE,
-        params,
-    )
-
-    if not rows:
-        return None
-
-    return rows[0]
-
-
-# ============================================================
-# GET PREVIOUS STATE
-# ============================================================
-
-def get_previous_state(match):
-
-    """
-    We use the existing database state to determine
-    whether a match changed.
-
-    The current fixtures.py updates the same row,
-    so we keep a small notification state in the
-    news_events table.
-
-    If the table does not exist yet, create it using
-    the SQL supplied below.
-    """
-
-    match_id = match["id"]
-
-    params = {
-        "select": "*",
-        "match_id": f"eq.{match_id}",
-        "order": "created_at.desc",
-        "limit": "1",
-    }
-
-    rows = supabase_get(
-        "news_events",
-        params,
-    )
-
-    if not rows:
-        return None
-
-    return rows[0]
-
-
-# ============================================================
-# SAVE NEWS EVENT
-# ============================================================
-
-def save_news_event(
-    match,
-    message_type,
-    status,
-    home_score,
-    away_score,
+def determine_message_type(
+    match
 ):
 
-    payload = {
-        "match_id": match["id"],
-        "message_type": message_type,
-        "status": status,
-        "home_score": home_score,
-        "away_score": away_score,
-    }
+    status = (
+        match.get("status")
+        or ""
+    ).upper()
 
-    url = (
-        f"{SUPABASE_URL}/rest/v1/news_events"
-    )
+    if status == "FINISHED":
+        return "FINISHED"
 
-    response = requests.post(
-        url,
-        headers={
-            **SUPABASE_HEADERS,
-            "Prefer": "return=minimal",
-        },
-        json=payload,
-        timeout=30,
-    )
+    if status == "IN_PLAY":
+        return "IN_PLAY"
 
-    if response.status_code not in [
-        200,
-        201,
-    ]:
+    if status == "PAUSED":
+        return "PAUSED"
 
-        raise Exception(
-            f"news_events insert failed "
-            f"{response.status_code}: "
-            f"{response.text}"
-        )
+    return "SCHEDULE"
 
 
 # ============================================================
-# CHECK IF EVENT WAS ALREADY SENT
+# CHECK DUPLICATE
 # ============================================================
 
 def event_already_sent(
@@ -821,57 +771,60 @@ def event_already_sent(
 
     if home_score is None:
 
-        params["home_score"] = "is.null"
+        params[
+            "home_score"
+        ] = "is.null"
 
     else:
 
-        params["home_score"] = (
-            f"eq.{home_score}"
-        )
+        params[
+            "home_score"
+        ] = f"eq.{home_score}"
 
     if away_score is None:
 
-        params["away_score"] = "is.null"
+        params[
+            "away_score"
+        ] = "is.null"
 
     else:
 
-        params["away_score"] = (
-            f"eq.{away_score}"
-        )
+        params[
+            "away_score"
+        ] = f"eq.{away_score}"
 
     rows = supabase_get(
-        "news_events",
+        NEWS_EVENTS_TABLE,
         params,
     )
 
-    return len(rows) > 0
+    return bool(rows)
 
 
 # ============================================================
-# DETERMINE MESSAGE TYPE
+# SAVE NEWS EVENT
 # ============================================================
 
-def determine_message_type(match):
+def save_news_event(
+    match,
+    message_type,
+    status,
+    home_score,
+    away_score,
+):
 
-    status = match.get(
-        "status"
+    payload = {
+        "match_id": match["id"],
+        "message_type": message_type,
+        "status": status,
+        "home_score": home_score,
+        "away_score": away_score,
+    }
+
+    supabase_insert(
+        NEWS_EVENTS_TABLE,
+        payload,
     )
-
-    score = get_score(match)
-
-    if status == "FINISHED":
-
-        return "FINISHED"
-
-    if status == "IN_PLAY":
-
-        return "IN_PLAY"
-
-    if status == "PAUSED":
-
-        return "PAUSED"
-
-    return "SCHEDULE"
 
 
 # ============================================================
@@ -885,11 +838,14 @@ def process_match(
 
     match_id = match["id"]
 
-    status = match.get(
-        "status"
-    )
+    status = (
+        match.get("status")
+        or ""
+    ).upper()
 
-    score = get_score(match)
+    score = get_score(
+        match
+    )
 
     if score:
 
@@ -900,29 +856,21 @@ def process_match(
         home_score = None
         away_score = None
 
-    message_type = determine_message_type(
-        match
+    message_type = (
+        determine_message_type(
+            match
+        )
     )
 
-    # --------------------------------------------------------
-    # INITIAL SYNC
-    # --------------------------------------------------------
-
-    already_sent = event_already_sent(
+    if event_already_sent(
         match_id,
         message_type,
         status,
         home_score,
         away_score,
-    )
-
-    if already_sent:
+    ):
 
         return "SKIPPED"
-
-    # --------------------------------------------------------
-    # SEND
-    # --------------------------------------------------------
 
     message = build_match_message(
         match,
@@ -932,10 +880,6 @@ def process_match(
     send_telegram_message(
         message
     )
-
-    # --------------------------------------------------------
-    # SAVE EVENT
-    # --------------------------------------------------------
 
     save_news_event(
         match,
@@ -974,11 +918,8 @@ def main():
     )
 
     print(
-        f"Today    : "
-        f"{now.date()}"
+        f"Today    : {now.date()}"
     )
-
-    from datetime import timedelta
 
     print(
         f"Tomorrow : "
@@ -987,26 +928,24 @@ def main():
 
     print("=" * 70)
 
-    # --------------------------------------------------------
+    # ========================================================
     # TEAMS
-    # --------------------------------------------------------
+    # ========================================================
 
     teams = get_teams_map()
 
     print(
-        f"Arabic teams loaded: "
-        f"{len(teams)}"
+        f"Teams loaded: {len(teams)}"
     )
 
-    # --------------------------------------------------------
+    # ========================================================
     # MATCHES
-    # --------------------------------------------------------
+    # ========================================================
 
     matches = get_target_matches()
 
     print(
-        f"Matches found: "
-        f"{len(matches)}"
+        f"Matches found: {len(matches)}"
     )
 
     print("")
@@ -1015,26 +954,42 @@ def main():
     skipped = 0
     errors = 0
 
-    # --------------------------------------------------------
-    # PROCESS EACH MATCH
-    # --------------------------------------------------------
+    # ========================================================
+    # EACH MATCH = ONE MESSAGE
+    # ========================================================
 
     for match in matches:
 
-        competition = match.get(
-            "competition_name",
-            "Unknown"
+        competition = (
+            match.get(
+                "competition_name"
+            )
+            or "Unknown"
         )
 
         home = get_team_arabic_name(
-            match.get("home_team_id"),
-            match.get("home_team_name"),
+            match.get(
+                "source"
+            ),
+            match.get(
+                "home_team_id"
+            ),
+            match.get(
+                "home_team_name"
+            ),
             teams,
         )
 
         away = get_team_arabic_name(
-            match.get("away_team_id"),
-            match.get("away_team_name"),
+            match.get(
+                "source"
+            ),
+            match.get(
+                "away_team_id"
+            ),
+            match.get(
+                "away_team_name"
+            ),
             teams,
         )
 
@@ -1045,7 +1000,7 @@ def main():
         )
 
         print(
-            f"{home} vs {away}"
+            f"⚽ {home} vs {away}"
         )
 
         print(
@@ -1065,7 +1020,7 @@ def main():
                 sent += 1
 
                 print(
-                    "📤 News sent successfully"
+                    "📤 Sent"
                 )
 
             else:
@@ -1073,7 +1028,7 @@ def main():
                 skipped += 1
 
                 print(
-                    "⏭️ Already sent - skipped"
+                    "⏭️ Already sent"
                 )
 
         except Exception as error:
@@ -1084,9 +1039,9 @@ def main():
                 f"❌ ERROR: {error}"
             )
 
-    # --------------------------------------------------------
-    # SUMMARY
-    # --------------------------------------------------------
+    # ========================================================
+    # FINAL SUMMARY
+    # ========================================================
 
     print("")
     print("=" * 70)
@@ -1094,31 +1049,28 @@ def main():
     print("=" * 70)
 
     print(
-        f"Matches checked : "
-        f"{len(matches)}"
+        f"Matches checked : {len(matches)}"
     )
 
     print(
-        f"News sent       : "
-        f"{sent}"
+        f"News sent       : {sent}"
     )
 
     print(
-        f"Skipped         : "
-        f"{skipped}"
+        f"Skipped         : {skipped}"
     )
 
     print(
-        f"Errors          : "
-        f"{errors}"
+        f"Errors          : {errors}"
     )
 
     print("=" * 70)
 
 
 # ============================================================
-# RUN
+# ENTRY POINT
 # ============================================================
 
 if __name__ == "__main__":
+
     main()
