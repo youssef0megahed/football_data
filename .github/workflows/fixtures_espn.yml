@@ -31,4 +31,4 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
         run: |
-          python fixtures_espn.py
+          python scr/fixtures_espn.py
