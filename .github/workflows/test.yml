@@ -1,41 +1,29 @@
-requests: test
+name: Import Players - Once
 
 on:
-  schedule:
-    # فحص الأحداث كل 5 دقائق
-    - cron: "*/6 * * * *"
-
   workflow_dispatch:
 
 jobs:
-  publish:
+  import-players:
     runs-on: ubuntu-latest
 
-    timeout-minutes: 5
-
     steps:
-      - name: Checkout repository
+      - name: تحميل المشروع
         uses: actions/checkout@v4
 
-      - name: Setup Python
+      - name: تجهيز Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
-      - name: Install dependencies
+      - name: تثبيت المكتبات
         run: |
           python -m pip install --upgrade pip
-          if [ -f requirements.txt ]; then
-            pip install -r requirements.txt
-          else
-            pip install requests supabase
-          fi
+          pip install requests supabase
 
-      - name: كود نشر المواعيد والاحداث
+      - name: سحب لاعبي الدوريات الخمس الكبرى
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: |
           python src/test.py
