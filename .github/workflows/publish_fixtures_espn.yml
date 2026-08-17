@@ -3,7 +3,7 @@ name: كود نشر المواعيد والاحداث
 on:
   schedule:
     # فحص الأحداث كل 5 دقائق
-    - cron: "*/5 * * * *"
+    - cron: "*/6 * * * *"
 
   workflow_dispatch:
 
