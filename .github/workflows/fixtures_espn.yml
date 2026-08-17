@@ -1,8 +1,7 @@
-name: كود سحب المواعيد والاحداث
+name: ESPN Fixtures Sync
 
 on:
   schedule:
-    # كل 5 دقيقة للمباريات العادية
     - cron: "*/5 * * * *"
 
   workflow_dispatch:
@@ -18,21 +17,16 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Setup Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.11"
-          cache: "pip"
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          if [ -f requirements.txt ]; then
-            pip install -r requirements.txt
-          else
-            pip install requests
-          fi
+          pip install requests
 
-      - name: كود سحب المواعيد والاحداث
+      - name: Run ESPN sync
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
