@@ -1,540 +1,248 @@
 import os
+import time
 import requests
 
-from datetime import datetime, timedelta
+from datetime import datetime
 from zoneinfo import ZoneInfo
 
 
 # ============================================================
-# CONFIGURATION
+# CONFIG
 # ============================================================
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+TELEGRAM_BOT_TOKEN = os.getenv(
+    "TELEGRAM_BOT_TOKEN"
+)
 
-TIMEZONE = ZoneInfo("Africa/Cairo")
+TELEGRAM_CHAT_ID = os.getenv(
+    "TELEGRAM_CHAT_ID"
+)
 
-MATCHES_TABLE = "matches"
-TEAMS_TABLE = "teams"
-NEWS_EVENTS_TABLE = "news_events"
+TIMEZONE = ZoneInfo(
+    "Africa/Cairo"
+)
 
 REQUEST_TIMEOUT = 30
+MAX_RETRIES = 4
+
+CHANNEL = "telegram"
 
 
 # ============================================================
-# ARABIC COMPETITION NAMES
+# LOGGING
 # ============================================================
 
-COMPETITION_AR = {
-    "Premier League": "الدوري الإنجليزي الممتاز",
-    "La Liga": "الدوري الإسباني",
-    "Serie A": "الدوري الإيطالي",
-    "Bundesliga": "الدوري الألماني",
-    "Ligue 1": "الدوري الفرنسي",
-}
+def log(message):
 
+    now = datetime.now(
+        TIMEZONE
+    ).strftime(
+        "%Y-%m-%d %H:%M:%S"
+    )
 
-# ============================================================
-# STATUS
-# ============================================================
-
-LIVE_STATUSES = {
-    "IN_PLAY",
-    "PAUSED",
-}
-
-FINISHED_STATUSES = {
-    "FINISHED",
-}
+    print(
+        f"[{now} Cairo] {message}",
+        flush=True
+    )
 
 
 # ============================================================
-# SUPABASE HEADERS
-# ============================================================
-
-SUPABASE_HEADERS = {
-    "apikey": SUPABASE_KEY,
-    "Authorization": f"Bearer {SUPABASE_KEY}",
-    "Content-Type": "application/json",
-}
-
-
-# ============================================================
-# RUNTIME DUPLICATE PROTECTION
-# ============================================================
-
-SENT_THIS_RUN = set()
-
-
-# ============================================================
-# VALIDATE ENVIRONMENT
+# ENVIRONMENT
 # ============================================================
 
 def validate_environment():
 
     required = {
-        "SUPABASE_URL": SUPABASE_URL,
-        "SUPABASE_KEY": SUPABASE_KEY,
-        "TELEGRAM_BOT_TOKEN": TELEGRAM_BOT_TOKEN,
-        "TELEGRAM_CHAT_ID": TELEGRAM_CHAT_ID,
+
+        "SUPABASE_URL":
+            SUPABASE_URL,
+
+        "SUPABASE_KEY":
+            SUPABASE_KEY,
+
+        "TELEGRAM_BOT_TOKEN":
+            TELEGRAM_BOT_TOKEN,
+
+        "TELEGRAM_CHAT_ID":
+            TELEGRAM_CHAT_ID,
+
     }
 
     missing = [
+
         name
-        for name, value in required.items()
+
+        for name, value
+        in required.items()
+
         if not value
+
     ]
 
     if missing:
-        raise Exception(
+
+        raise RuntimeError(
+
             "Missing environment variables: "
             + ", ".join(missing)
+
         )
 
 
 # ============================================================
-# SUPABASE GET
+# RETRY
 # ============================================================
 
-def supabase_get(table, params=None):
-
-    url = f"{SUPABASE_URL}/rest/v1/{table}"
-
-    response = requests.get(
-        url,
-        headers=SUPABASE_HEADERS,
-        params=params or {},
-        timeout=REQUEST_TIMEOUT,
-    )
-
-    if response.status_code != 200:
-
-        raise Exception(
-            f"Supabase GET failed "
-            f"{response.status_code}: "
-            f"{response.text}"
-        )
-
-    return response.json()
-
-
-# ============================================================
-# SUPABASE INSERT
-# ============================================================
-
-def supabase_insert(table, payload):
-
-    url = f"{SUPABASE_URL}/rest/v1/{table}"
-
-    headers = {
-        **SUPABASE_HEADERS,
-        "Prefer": "return=minimal",
-    }
-
-    response = requests.post(
-        url,
-        headers=headers,
-        json=payload,
-        timeout=REQUEST_TIMEOUT,
-    )
-
-    if response.status_code not in [200, 201, 204]:
-
-        raise Exception(
-            f"Supabase INSERT failed "
-            f"{response.status_code}: "
-            f"{response.text}"
-        )
-
-    return True
-
-
-# ============================================================
-# GET TEAMS MAP
-# ============================================================
-
-def get_teams_map():
-
-    params = {
-        "select": "source,source_team_id,name,name_ar",
-        "source": "eq.espn",
-    }
-
-    rows = supabase_get(
-        TEAMS_TABLE,
-        params,
-    )
-
-    teams = {}
-
-    for row in rows:
-
-        source_team_id = row.get(
-            "source_team_id"
-        )
-
-        if source_team_id is None:
-            continue
-
-        source_team_id = str(
-            source_team_id
-        )
-
-        teams[source_team_id] = {
-            "name": row.get("name"),
-            "name_ar": row.get("name_ar"),
-        }
-
-    return teams
-
-
-# ============================================================
-# GET ARABIC TEAM NAME
-# ============================================================
-
-def get_team_name(
-    team_id,
-    fallback_name,
-    teams,
+def retry_call(
+    operation,
+    label,
 ):
 
-    if team_id is not None:
-
-        team = teams.get(
-            str(team_id)
-        )
-
-        if team:
-
-            arabic_name = team.get(
-                "name_ar"
-            )
-
-            if arabic_name:
-                return arabic_name.strip()
-
-            original_name = team.get(
-                "name"
-            )
-
-            if original_name:
-                return original_name.strip()
-
-    return fallback_name or "فريق غير محدد"
-
-
-# ============================================================
-# COMPETITION NAME
-# ============================================================
-
-def get_competition_name(
-    competition_name
-):
-
-    return COMPETITION_AR.get(
-        competition_name,
-        competition_name or "بطولة غير محددة",
-    )
-
-
-# ============================================================
-# PARSE DATETIME
-# ============================================================
-
-def parse_datetime(value):
-
-    if not value:
-        return None
-
-    try:
-
-        return datetime.fromisoformat(
-            value.replace(
-                "Z",
-                "+00:00",
-            )
-        ).astimezone(
-            TIMEZONE
-        )
-
-    except Exception:
-
-        return None
-
-
-# ============================================================
-# FORMAT DATE
-# ============================================================
-
-def format_date(kickoff_local):
-
-    dt = parse_datetime(
-        kickoff_local
-    )
-
-    if not dt:
-        return "غير محدد"
-
-    return dt.strftime(
-        "%Y-%m-%d"
-    )
-
-
-# ============================================================
-# FORMAT TIME
-# ============================================================
-
-def format_time(kickoff_local):
-
-    dt = parse_datetime(
-        kickoff_local
-    )
-
-    if not dt:
-        return "غير محدد"
-
-    hour = dt.hour
-    minute = dt.minute
-
-    if hour == 0:
-
-        hour_12 = 12
-        period = "صباحًا"
-
-    elif hour < 12:
-
-        hour_12 = hour
-        period = "صباحًا"
-
-    elif hour == 12:
-
-        hour_12 = 12
-        period = "ظهرًا"
-
-    else:
-
-        hour_12 = hour - 12
-        period = "مساءً"
-
-    return (
-        f"{hour_12:02d}:"
-        f"{minute:02d} "
-        f"{period}"
-    )
-
-
-# ============================================================
-# MATCH DAY
-# ============================================================
-
-def get_match_day(kickoff_local):
-
-    dt = parse_datetime(
-        kickoff_local
-    )
-
-    if not dt:
-        return "unknown"
-
-    today = datetime.now(
-        TIMEZONE
-    ).date()
-
-    tomorrow = today + timedelta(
-        days=1
-    )
-
-    if dt.date() == today:
-        return "today"
-
-    if dt.date() == tomorrow:
-        return "tomorrow"
-
-    return "other"
-
-
-# ============================================================
-# MATCH TITLE
-# ============================================================
-
-def get_match_title(match):
-
-    status = match.get(
-        "status"
-    )
-
-    if status in LIVE_STATUSES:
-        return "🔴 مباراة جارية الآن"
-
-    if status in FINISHED_STATUSES:
-        return "🏁 انتهت المباراة"
-
-    day = get_match_day(
-        match.get("kickoff_local")
-    )
-
-    if day == "today":
-        return "📅 مباراة اليوم"
-
-    if day == "tomorrow":
-        return "📅 مباراة الغد"
-
-    return "⚽ مباراة"
-
-
-# ============================================================
-# GET SCORE
-# ============================================================
-
-def get_score(match):
-
-    home_score = match.get(
-        "home_score"
-    )
-
-    away_score = match.get(
-        "away_score"
-    )
-
-    if (
-        home_score is None
-        or away_score is None
-    ):
-        return None
-
-    try:
-
-        return (
-            int(home_score),
-            int(away_score),
-        )
-
-    except (
-        TypeError,
-        ValueError,
+    last_error = None
+
+    for attempt in range(
+        1,
+        MAX_RETRIES + 1
     ):
 
-        return None
+        try:
+
+            return operation()
+
+        except Exception as error:
+
+            last_error = error
+
+            if attempt >= MAX_RETRIES:
+                break
+
+            delay = (
+                2 ** (attempt - 1)
+            )
+
+            log(
+
+                f"{label} failed "
+                f"({attempt}/{MAX_RETRIES}): "
+                f"{error}"
+
+            )
+
+            log(
+                f"Retrying in {delay}s"
+            )
+
+            time.sleep(
+                delay
+            )
+
+    raise RuntimeError(
+
+        f"{label} failed after "
+        f"{MAX_RETRIES} attempts: "
+        f"{last_error}"
+
+    )
 
 
 # ============================================================
-# BUILD MATCH MESSAGE
+# SUPABASE
 # ============================================================
 
-def build_match_message(
-    match,
-    teams,
+SUPABASE_HEADERS = {
+
+    "apikey":
+        SUPABASE_KEY,
+
+    "Authorization":
+        f"Bearer {SUPABASE_KEY}",
+
+    "Content-Type":
+        "application/json",
+
+}
+
+
+def supabase_request(
+
+    method,
+
+    table,
+
+    params=None,
+
+    json_body=None,
+
 ):
 
-    title = get_match_title(
-        match
+    url = (
+        f"{SUPABASE_URL}"
+        f"/rest/v1/{table}"
     )
 
-    competition = get_competition_name(
-        match.get("competition_name")
-    )
+    def request():
 
-    home = get_team_name(
-        match.get("home_team_id"),
-        match.get("home_team_name"),
-        teams,
-    )
+        response = requests.request(
 
-    away = get_team_name(
-        match.get("away_team_id"),
-        match.get("away_team_name"),
-        teams,
-    )
+            method,
 
-    match_date = format_date(
-        match.get("kickoff_local")
-    )
+            url,
 
-    match_time = format_time(
-        match.get("kickoff_local")
-    )
+            headers=SUPABASE_HEADERS,
 
-    status = match.get(
-        "status"
-    )
+            params=params,
 
-    score = get_score(
-        match
-    )
+            json=json_body,
 
-    # ========================================================
-    # FINISHED
-    # ========================================================
+            timeout=REQUEST_TIMEOUT,
 
-    if status in FINISHED_STATUSES:
+        )
 
-        if score:
+        if response.status_code in {
+            200,
+            201,
+            204,
+        }:
 
-            home_score, away_score = score
+            if not response.content:
+                return []
 
-            return (
-                f"{title}\n"
-                f"\n"
-                f"🏆 {competition}\n"
-                f"\n"
-                f"⚽ {home} 🆚 {away}\n"
-                f"\n"
-                f"📆{match_date}\n"
-                f"\n"
-                f"🏁 النتيجة: "
-                f"{home_score} - {away_score}\n"
-                f"\n"
-                f"#كرة_القدم #Football"
+            return response.json()
+
+        if response.status_code in {
+            408,
+            409,
+            429,
+            500,
+            502,
+            503,
+            504,
+        }:
+
+            raise RuntimeError(
+
+                f"Supabase transient "
+                f"HTTP {response.status_code}"
+
             )
 
-    # ========================================================
-    # LIVE
-    # ========================================================
+        raise RuntimeError(
 
-    if status in LIVE_STATUSES:
+            f"Supabase HTTP "
+            f"{response.status_code}: "
+            f"{response.text[:500]}"
 
-        if score:
+        )
 
-            home_score, away_score = score
+    return retry_call(
 
-            return (
-                f"{title}\n"
-                f"\n"
-                f"🏆 {competition}\n"
-                f"\n"
-                f"⚽ {home} 🆚 {away}\n"
-                f"\n"
-                f"📆{match_date}\n"
-                f"\n"
-                f"⏰ {match_time} "
-                f"بتوقيت القاهرة\n"
-                f"\n"
-                f"📊 النتيجة الحالية: "
-                f"{home_score} - {away_score}\n"
-                f"\n"
-                f"#كرة_القدم #Football"
-            )
+        request,
 
-    # ========================================================
-    # UPCOMING
-    # ========================================================
+        f"Supabase {method} {table}"
 
-    return (
-        f"{title}\n"
-        f"\n"
-        f"🏆 {competition}\n"
-        f"\n"
-        f"⚽ {home} 🆚 {away}\n"
-        f"\n"
-        f"📆{match_date}\n"
-        f"\n"
-        f"⏰ {match_time} "
-        f"بتوقيت القاهرة\n"
-        f"\n"
-        f"#كرة_القدم #Football"
     )
 
 
@@ -542,353 +250,891 @@ def build_match_message(
 # TELEGRAM
 # ============================================================
 
-def send_telegram_message(message):
-
-    url = (
-        "https://api.telegram.org/bot"
-        f"{TELEGRAM_BOT_TOKEN}"
-        "/sendMessage"
-    )
-
-    payload = {
-        "chat_id": TELEGRAM_CHAT_ID,
-        "text": message,
-    }
-
-    response = requests.post(
-        url,
-        json=payload,
-        timeout=REQUEST_TIMEOUT,
-    )
-
-    if response.status_code != 200:
-
-        raise Exception(
-            f"Telegram HTTP error "
-            f"{response.status_code}: "
-            f"{response.text}"
-        )
-
-    data = response.json()
-
-    if not data.get("ok"):
-
-        raise Exception(
-            f"Telegram error: {data}"
-        )
-
-    return True
-
-
-# ============================================================
-# GET TARGET MATCHES
-# ============================================================
-
-def get_target_matches():
-
-    now = datetime.now(
-        TIMEZONE
-    )
-
-    today = now.date()
-
-    tomorrow = today + timedelta(
-        days=1
-    )
-
-    start = datetime(
-        today.year,
-        today.month,
-        today.day,
-        tzinfo=TIMEZONE,
-    )
-
-    params = {
-        "select": "*",
-        "kickoff_local": (
-            f"gte.{start.isoformat()}"
-        ),
-        "order": "kickoff_local.asc",
-    }
-
-    rows = supabase_get(
-        MATCHES_TABLE,
-        params,
-    )
-
-    target = []
-
-    for match in rows:
-
-        kickoff = match.get(
-            "kickoff_local"
-        )
-
-        dt = parse_datetime(
-            kickoff
-        )
-
-        if not dt:
-            continue
-
-        if (
-            dt.date() == today
-            or
-            dt.date() == tomorrow
-        ):
-
-            target.append(match)
-
-    return target
-
-
-# ============================================================
-# NOTIFICATION TYPE
-# ============================================================
-
-def get_notification_type(match):
-
-    status = match.get(
-        "status"
-    )
-
-    # --------------------------------------------------------
-    # UPCOMING
-    # --------------------------------------------------------
-
-    if status not in LIVE_STATUSES and \
-       status not in FINISHED_STATUSES:
-
-        return "SCHEDULE"
-
-    # --------------------------------------------------------
-    # LIVE
-    #
-    # Every different score is a new update.
-    # --------------------------------------------------------
-
-    if status in LIVE_STATUSES:
-
-        home_score = match.get(
-            "home_score"
-        )
-
-        away_score = match.get(
-            "away_score"
-        )
-
-        return (
-            f"LIVE:"
-            f"{home_score}:"
-            f"{away_score}"
-        )
-
-    # --------------------------------------------------------
-    # FINISHED
-    # --------------------------------------------------------
-
-    if status in FINISHED_STATUSES:
-
-        home_score = match.get(
-            "home_score"
-        )
-
-        away_score = match.get(
-            "away_score"
-        )
-
-        return (
-            f"FINISHED:"
-            f"{home_score}:"
-            f"{away_score}"
-        )
-
-    return "OTHER"
-
-
-# ============================================================
-# STABLE NOTIFICATION KEY
-# ============================================================
-
-def make_notification_key(match):
-
-    match_id = match.get(
-        "id"
-    )
-
-    notification_type = get_notification_type(
-        match
-    )
-
-    return (
-        f"{match_id}:"
-        f"{notification_type}"
-    )
-
-
-# ============================================================
-# CHECK NOTIFICATION
-# ============================================================
-
-def notification_already_sent(match):
-
-    match_id = match.get(
-        "id"
-    )
-
-    notification_type = get_notification_type(
-        match
-    )
-
-    key = make_notification_key(
-        match
-    )
-
-    # --------------------------------------------------------
-    # RUNTIME PROTECTION
-    # --------------------------------------------------------
-
-    if key in SENT_THIS_RUN:
-        return True
-
-    # --------------------------------------------------------
-    # DATABASE PROTECTION
-    # --------------------------------------------------------
-
-    params = {
-        "select": "id",
-        "match_id": f"eq.{match_id}",
-        "message_type": (
-            f"eq.{notification_type}"
-        ),
-        "limit": "1",
-    }
-
-    # For live / finished notifications,
-    # distinguish different scores.
-    # For schedule, there is only one notification.
-
-    if notification_type.startswith(
-        "LIVE:"
-    ):
-
-        score_parts = notification_type.split(
-            ":"
-        )
-
-        home_score = score_parts[1]
-        away_score = score_parts[2]
-
-        params["status"] = "in.(IN_PLAY,PAUSED)"
-        params["home_score"] = f"eq.{home_score}"
-        params["away_score"] = f"eq.{away_score}"
-
-    elif notification_type.startswith(
-        "FINISHED:"
-    ):
-
-        score_parts = notification_type.split(
-            ":"
-        )
-
-        home_score = score_parts[1]
-        away_score = score_parts[2]
-
-        params["status"] = "eq.FINISHED"
-        params["home_score"] = f"eq.{home_score}"
-        params["away_score"] = f"eq.{away_score}"
-
-    else:
-
-        # SCHEDULE
-        params["status"] = (
-            "not.in.(IN_PLAY,PAUSED,FINISHED)"
-        )
-
-    rows = supabase_get(
-        NEWS_EVENTS_TABLE,
-        params,
-    )
-
-    if rows:
-
-        SENT_THIS_RUN.add(
-            key
-        )
-
-        return True
-
-    return False
-
-
-# ============================================================
-# SAVE NOTIFICATION
-# ============================================================
-
-def save_notification(match):
-
-    match_id = match.get(
-        "id"
-    )
-
-    notification_type = get_notification_type(
-        match
-    )
-
-    payload = {
-        "match_id": match_id,
-        "message_type": notification_type,
-        "status": match.get(
-            "status"
-        ),
-        "home_score": match.get(
-            "home_score"
-        ),
-        "away_score": match.get(
-            "away_score"
-        ),
-    }
-
-    supabase_insert(
-        NEWS_EVENTS_TABLE,
-        payload,
-    )
-
-    SENT_THIS_RUN.add(
-        make_notification_key(
-            match
-        )
-    )
-
-
-# ============================================================
-# PROCESS MATCH
-# ============================================================
-
-def process_match(
-    match,
-    teams,
+def telegram_request(
+    method,
+    payload,
 ):
 
-    notification_type = get_notification_type(
-        match
+    url = (
+
+        "https://api.telegram.org/bot"
+        f"{TELEGRAM_BOT_TOKEN}/"
+        f"{method}"
+
     )
 
-    print(
-        f"Notification type: "
-        f"{notification_type}"
+    def request():
+
+        response = requests.post(
+
+            url,
+
+            json=payload,
+
+            timeout=REQUEST_TIMEOUT,
+
+        )
+
+        if response.status_code == 200:
+
+            data = response.json()
+
+            if not data.get(
+                "ok",
+                False
+            ):
+
+                raise RuntimeError(
+                    str(data)
+                )
+
+            return data
+
+        if response.status_code in {
+            408,
+            409,
+            429,
+            500,
+            502,
+            503,
+            504,
+        }:
+
+            raise RuntimeError(
+
+                f"Telegram transient "
+                f"HTTP {response.status_code}"
+
+            )
+
+        raise RuntimeError(
+
+            f"Telegram HTTP "
+            f"{response.status_code}: "
+            f"{response.text[:500]}"
+
+        )
+
+    return retry_call(
+
+        request,
+
+        f"Telegram {method}"
+
     )
 
-    if notification_already_sent(
-        match
-    ):
 
-        return "SKIPPED"
+# ============================================================
+# FETCH UNPUBLISHED EVENTS
+# ============================================================
 
-    message = build_match_message(
+def get_unpublished_events():
+
+    params = {
+
+        "select": (
+            "id,"
+            "match_id,"
+            "source,"
+            "source_event_key,"
+            "event_type,"
+            "minute,"
+            "extra_time,"
+            "team_id,"
+            "team_name,"
+            "player_id,"
+            "player_name,"
+            "assist_player_id,"
+            "assist_player_name,"
+            "player_out_id,"
+            "player_out_name,"
+            "player_in_id,"
+            "player_in_name,"
+            "card,"
+            "home_score,"
+            "away_score,"
+            "raw_event"
+        ),
+
+        "source":
+            "eq.espn",
+
+        "order":
+            "id.asc",
+
+        "limit":
+            "100",
+
+    }
+
+    events = supabase_request(
+
+        "GET",
+
+        "match_events",
+
+        params,
+
+    )
+
+    if not events:
+
+        return []
+
+    event_ids = [
+
+        str(
+            event["id"]
+        )
+
+        for event in events
+
+        if event.get(
+            "id"
+        ) is not None
+
+    ]
+
+    if not event_ids:
+
+        return []
+
+    # --------------------------------------------------------
+    # Get events already published to this channel.
+    # --------------------------------------------------------
+
+    sent_rows = supabase_request(
+
+        "GET",
+
+        "news_events",
+
+        {
+
+            "select":
+                "match_event_id,channel",
+
+            "channel":
+                f"eq.{CHANNEL}",
+
+            "match_event_id":
+                "in.("
+                + ",".join(
+                    event_ids
+                )
+                + ")",
+
+        },
+
+    )
+
+    sent_ids = {
+
+        str(
+            row[
+                "match_event_id"
+            ]
+        )
+
+        for row in sent_rows
+
+        if row.get(
+            "match_event_id"
+        ) is not None
+
+    }
+
+    unpublished = [
+
+        event
+
+        for event in events
+
+        if str(
+            event["id"]
+        ) not in sent_ids
+
+    ]
+
+    return unpublished
+
+
+# ============================================================
+# MATCH DATA
+# ============================================================
+
+def get_matches(
+    match_ids,
+):
+
+    if not match_ids:
+
+        return {}
+
+    ids = ",".join(
+
+        str(value)
+
+        for value in match_ids
+
+    )
+
+    rows = supabase_request(
+
+        "GET",
+
+        "matches",
+
+        {
+
+            "select": (
+                "id,"
+                "source_match_id,"
+                "home_team_name,"
+                "away_team_name,"
+                "home_score,"
+                "away_score,"
+                "status,"
+                "kickoff_local,"
+                "competition_name"
+            ),
+
+            "id":
+                f"in.({ids})",
+
+        },
+
+    )
+
+    return {
+
+        str(
+            row["id"]
+        ):
+            row
+
+        for row in rows
+
+    }
+
+
+# ============================================================
+# FORMAT MINUTE
+# ============================================================
+
+def format_minute(
+    minute,
+    extra_time,
+):
+
+    if minute is None:
+
+        return ""
+
+    if extra_time:
+
+        return (
+            f"{minute}+"
+            f"{extra_time}'"
+        )
+
+    return (
+        f"{minute}'"
+    )
+
+
+# ============================================================
+# EVENT EMOJI
+# ============================================================
+
+def event_prefix(
+    event_type,
+):
+
+    prefixes = {
+
+        "goal":
+            "⚽",
+
+        "yellow_card":
+            "🟨",
+
+        "red_card":
+            "🟥",
+
+        "substitution":
+            "🔄",
+
+        "var":
+            "📺",
+
+        "penalty":
+            "⚽",
+
+        "kickoff":
+            "🟢",
+
+        "start_2nd_half":
+            "▶️",
+
+        "halftime":
+            "⏸️",
+
+        "fulltime":
+            "🔴",
+
+    }
+
+    return prefixes.get(
+        event_type,
+        "📢"
+    )
+
+
+# ============================================================
+# MESSAGE GENERATION
+# ============================================================
+
+def build_event_message(
+    event,
+    match,
+):
+
+    event_type = event.get(
+        "event_type"
+    )
+
+    home = (
+        match.get(
+            "home_team_name"
+        )
+        or
+        "الفريق الأول"
+    )
+
+    away = (
+        match.get(
+            "away_team_name"
+        )
+        or
+        "الفريق الثاني"
+    )
+
+    competition = (
+        match.get(
+            "competition_name"
+        )
+        or
+        ""
+    )
+
+    minute = format_minute(
+
+        event.get(
+            "minute"
+        ),
+
+        event.get(
+            "extra_time"
+        ),
+
+    )
+
+    player = (
+        event.get(
+            "player_name"
+        )
+        or
+        ""
+    )
+
+    assist = (
+        event.get(
+            "assist_player_name"
+        )
+        or
+        ""
+    )
+
+    team = (
+        event.get(
+            "team_name"
+        )
+        or
+        ""
+    )
+
+    home_score = event.get(
+        "home_score"
+    )
+
+    away_score = event.get(
+        "away_score"
+    )
+
+    # --------------------------------------------------------
+    # GOAL
+    # --------------------------------------------------------
+
+    if event_type == "goal":
+
+        text = (
+            f"⚽ هدف!"
+            f"\n{team}"
+        )
+
+        if player:
+
+            text += (
+                f"\n👤 {player}"
+            )
+
+        if assist:
+
+            text += (
+                f"\n🎯 أسيست: {assist}"
+            )
+
+        if (
+            home_score is not None
+            and
+            away_score is not None
+        ):
+
+            text += (
+
+                f"\n📊 "
+                f"{home} "
+                f"{home_score} - "
+                f"{away_score} "
+                f"{away}"
+
+            )
+
+        if minute:
+
+            text += (
+                f"\n⏱️ {minute}"
+            )
+
+        return text
+
+    # --------------------------------------------------------
+    # YELLOW CARD
+    # --------------------------------------------------------
+
+    if event_type == "yellow_card":
+
+        text = (
+            f"🟨 بطاقة صفراء"
+            f"\n{team}"
+        )
+
+        if player:
+
+            text += (
+                f"\n👤 {player}"
+            )
+
+        if minute:
+
+            text += (
+                f"\n⏱️ {minute}"
+            )
+
+        return text
+
+    # --------------------------------------------------------
+    # RED CARD
+    # --------------------------------------------------------
+
+    if event_type == "red_card":
+
+        text = (
+            f"🟥 بطاقة حمراء"
+            f"\n{team}"
+        )
+
+        if player:
+
+            text += (
+                f"\n👤 {player}"
+            )
+
+        if minute:
+
+            text += (
+                f"\n⏱️ {minute}"
+            )
+
+        return text
+
+    # --------------------------------------------------------
+    # SUBSTITUTION
+    # --------------------------------------------------------
+
+    if event_type == "substitution":
+
+        player_out = (
+            event.get(
+                "player_out_name"
+            )
+            or
+            ""
+        )
+
+        player_in = (
+            event.get(
+                "player_in_name"
+            )
+            or
+            ""
+        )
+
+        text = (
+            f"🔄 تبديل"
+            f"\n{team}"
+        )
+
+        if player_out:
+
+            text += (
+                f"\n⬅️ خروج: "
+                f"{player_out}"
+            )
+
+        if player_in:
+
+            text += (
+                f"\n➡️ دخول: "
+                f"{player_in}"
+            )
+
+        if minute:
+
+            text += (
+                f"\n⏱️ {minute}"
+            )
+
+        return text
+
+    # --------------------------------------------------------
+    # VAR
+    # --------------------------------------------------------
+
+    if event_type == "var":
+
+        text = (
+            "📺 مراجعة VAR"
+        )
+
+        if team:
+
+            text += (
+                f"\n{team}"
+            )
+
+        if player:
+
+            text += (
+                f"\n👤 {player}"
+            )
+
+        if minute:
+
+            text += (
+                f"\n⏱️ {minute}"
+            )
+
+        return text
+
+    # --------------------------------------------------------
+    # PENALTY
+    # --------------------------------------------------------
+
+    if event_type == "penalty":
+
+        text = (
+            f"⚽ ركلة جزاء"
+            f"\n{team}"
+        )
+
+        if player:
+
+            text += (
+                f"\n👤 {player}"
+            )
+
+        if minute:
+
+            text += (
+                f"\n⏱️ {minute}"
+            )
+
+        return text
+
+    # --------------------------------------------------------
+    # KICKOFF
+    # --------------------------------------------------------
+
+    if event_type == "kickoff":
+
+        return (
+
+            f"🟢 بداية المباراة"
+
+            f"\n{home} × {away}"
+
+            + (
+                f"\n🏆 {competition}"
+                if competition
+                else ""
+            )
+
+        )
+
+    # --------------------------------------------------------
+    # SECOND HALF
+    # --------------------------------------------------------
+
+    if event_type == "start_2nd_half":
+
+        return (
+            "▶️ بداية الشوط الثاني"
+            f"\n{home} × {away}"
+        )
+
+    # --------------------------------------------------------
+    # HALF TIME
+    # --------------------------------------------------------
+
+    if event_type == "halftime":
+
+        score_text = ""
+
+        if (
+            home_score is not None
+            and
+            away_score is not None
+        ):
+
+            score_text = (
+
+                f"\n📊 "
+                f"{home} "
+                f"{home_score} - "
+                f"{away_score} "
+                f"{away}"
+
+            )
+
+        return (
+            "⏸️ نهاية الشوط الأول"
+            f"{score_text}"
+        )
+
+    # --------------------------------------------------------
+    # FULL TIME
+    # --------------------------------------------------------
+
+    if event_type == "fulltime":
+
+        score_text = ""
+
+        if (
+            home_score is not None
+            and
+            away_score is not None
+        ):
+
+            score_text = (
+
+                f"\n🏁 "
+                f"{home} "
+                f"{home_score} - "
+                f"{away_score} "
+                f"{away}"
+
+            )
+
+        return (
+            "🔴 نهاية المباراة"
+            f"{score_text}"
+        )
+
+    # --------------------------------------------------------
+    # UNKNOWN EVENT
+    # --------------------------------------------------------
+
+    text = (
+        f"{event_prefix(event_type)} "
+        f"{event_type or 'حدث جديد'}"
+    )
+
+    if team:
+
+        text += (
+            f"\n{team}"
+        )
+
+    if player:
+
+        text += (
+            f"\n👤 {player}"
+        )
+
+    if minute:
+
+        text += (
+            f"\n⏱️ {minute}"
+        )
+
+    return text
+
+
+# ============================================================
+# SEND TELEGRAM
+# ============================================================
+
+def send_telegram_message(
+    text,
+):
+
+    payload = {
+
+        "chat_id":
+            TELEGRAM_CHAT_ID,
+
+        "text":
+            text,
+
+        "disable_web_page_preview":
+            True,
+
+    }
+
+    return telegram_request(
+
+        "sendMessage",
+
+        payload,
+
+    )
+
+
+# ============================================================
+# LOG SENT EVENT
+# ============================================================
+
+def log_sent_event(
+    event,
+):
+
+    event_id = event.get(
+        "id"
+    )
+
+    if event_id is None:
+
+        raise RuntimeError(
+            "Event has no database ID"
+        )
+
+    record = {
+
+        "match_event_id":
+            event_id,
+
+        "channel":
+            CHANNEL,
+
+        "sent_at":
+            datetime.now(
+                TIMEZONE
+            ).isoformat(),
+
+    }
+
+    try:
+
+        supabase_request(
+
+            "POST",
+
+            "news_events",
+
+            {
+                "on_conflict":
+                    "match_event_id,channel"
+            },
+
+            [record],
+
+        )
+
+    except Exception as error:
+
+        # IMPORTANT:
+        #
+        # Telegram was already sent.
+        #
+        # We must not blindly resend the message,
+        # otherwise a Supabase error could create
+        # duplicate Telegram posts.
+        #
+        # Therefore we raise an explicit error and
+        # let the workflow report it.
+
+        raise RuntimeError(
+
+            "Telegram message was sent "
+            "but logging in news_events failed: "
+            f"{error}"
+
+        )
+
+
+# ============================================================
+# PROCESS EVENT
+# ============================================================
+
+def process_event(
+    event,
+    match,
+):
+
+    event_id = event.get(
+        "id"
+    )
+
+    event_type = event.get(
+        "event_type"
+    )
+
+    log(
+
+        f"Publishing event "
+        f"id={event_id} "
+        f"type={event_type}"
+
+    )
+
+    message = build_event_message(
+
+        event,
+
         match,
-        teams,
+
     )
+
+    if not message.strip():
+
+        log(
+            f"Skipping empty message "
+            f"for event {event_id}"
+        )
+
+        return False
 
     # --------------------------------------------------------
     # SEND
@@ -898,15 +1144,25 @@ def process_match(
         message
     )
 
-    # --------------------------------------------------------
-    # SAVE ONLY AFTER TELEGRAM SUCCESS
-    # --------------------------------------------------------
-
-    save_notification(
-        match
+    log(
+        f"Telegram sent "
+        f"event={event_id}"
     )
 
-    return "SENT"
+    # --------------------------------------------------------
+    # LOG
+    # --------------------------------------------------------
+
+    log_sent_event(
+        event
+    )
+
+    log(
+        f"news_events logged "
+        f"event={event_id}"
+    )
+
+    return True
 
 
 # ============================================================
@@ -917,161 +1173,195 @@ def main():
 
     validate_environment()
 
-    now = datetime.now(
-        TIMEZONE
+    log(
+        "=================================================="
     )
 
-    print("=" * 70)
-    print("FOOTBALL NEWS ENGINE")
-    print("=" * 70)
-
-    print(
-        "Timezone : Africa/Cairo"
+    log(
+        "TELEGRAM EVENT PUBLISHER START"
     )
 
-    print(
-        f"Now      : "
-        f"{now.strftime('%Y-%m-%d %H:%M:%S')}"
+    log(
+        f"Channel: {CHANNEL}"
     )
-
-    print(
-        f"Today    : {now.date()}"
-    )
-
-    print(
-        f"Tomorrow : "
-        f"{now.date() + timedelta(days=1)}"
-    )
-
-    print("=" * 70)
 
     # --------------------------------------------------------
-    # TEAMS
+    # GET EVENTS
     # --------------------------------------------------------
 
-    teams = get_teams_map()
+    try:
 
-    print(
-        f"ESPN teams loaded: "
-        f"{len(teams)}"
+        events = (
+            get_unpublished_events()
+        )
+
+    except Exception as error:
+
+        log(
+            f"ERROR loading events: "
+            f"{error}"
+        )
+
+        raise
+
+    if not events:
+
+        log(
+            "No unpublished events."
+        )
+
+        log(
+            "TELEGRAM EVENT PUBLISHER END"
+        )
+
+        return
+
+    log(
+
+        f"Unpublished events: "
+        f"{len(events)}"
+
     )
 
     # --------------------------------------------------------
     # MATCHES
     # --------------------------------------------------------
 
-    matches = get_target_matches()
+    match_ids = [
 
-    print(
-        f"Matches found: "
-        f"{len(matches)}"
+        event[
+            "match_id"
+        ]
+
+        for event in events
+
+        if event.get(
+            "match_id"
+        ) is not None
+
+    ]
+
+    matches = get_matches(
+        list(
+            set(
+                match_ids
+            )
+        )
     )
-
-    print("")
-
-    sent = 0
-    skipped = 0
-    errors = 0
 
     # --------------------------------------------------------
     # PROCESS
     # --------------------------------------------------------
 
-    for match in matches:
+    sent = 0
+    failed = 0
+    skipped = 0
 
-        competition = match.get(
-            "competition_name",
-            "Unknown",
+    for event in events:
+
+        match_id = event.get(
+            "match_id"
         )
 
-        home = get_team_name(
-            match.get("home_team_id"),
-            match.get("home_team_name"),
-            teams,
+        match = matches.get(
+            str(
+                match_id
+            )
         )
 
-        away = get_team_name(
-            match.get("away_team_id"),
-            match.get("away_team_name"),
-            teams,
-        )
+        if not match:
 
-        print("-" * 70)
+            log(
 
-        print(
-            f"🏆 {competition}"
-        )
+                f"Skipping event "
+                f"{event.get('id')}: "
+                f"match {match_id} "
+                f"not found"
 
-        print(
-            f"⚽ {home} vs {away}"
-        )
+            )
 
-        print(
-            f"Status: "
-            f"{match.get('status')}"
-        )
+            skipped += 1
+
+            continue
 
         try:
 
-            result = process_match(
+            success = process_event(
+
+                event,
+
                 match,
-                teams,
+
             )
 
-            if result == "SENT":
+            if success:
 
                 sent += 1
-
-                print(
-                    "📤 Sent successfully"
-                )
 
             else:
 
                 skipped += 1
 
-                print(
-                    "⏭️ Already sent"
-                )
-
         except Exception as error:
 
-            errors += 1
+            failed += 1
 
-            print(
-                f"❌ ERROR: {error}"
+            log(
+
+                f"ERROR publishing "
+                f"event "
+                f"{event.get('id')}: "
+                f"{error}"
+
             )
 
+            # Continue with next event.
+
+            continue
+
     # --------------------------------------------------------
-    # SUMMARY
+    # FINAL
     # --------------------------------------------------------
 
-    print("")
-    print("=" * 70)
-    print("FINAL SUMMARY")
-    print("=" * 70)
-
-    print(
-        f"Matches checked : "
-        f"{len(matches)}"
+    log(
+        "=================================================="
     )
 
-    print(
-        f"News sent       : "
-        f"{sent}"
+    log(
+        "TELEGRAM EVENT PUBLISHER END"
     )
 
-    print(
-        f"Skipped         : "
-        f"{skipped}"
+    log(
+        f"Sent: {sent}"
     )
 
-    print(
-        f"Errors          : "
-        f"{errors}"
+    log(
+        f"Failed: {failed}"
     )
 
-    print("=" * 70)
+    log(
+        f"Skipped: {skipped}"
+    )
+
+    log(
+        "=================================================="
+    )
+
+    # --------------------------------------------------------
+    # IMPORTANT:
+    #
+    # If anything failed, GitHub Actions should show
+    # the run as failed.
+    # --------------------------------------------------------
+
+    if failed:
+
+        raise RuntimeError(
+
+            f"{failed} event(s) "
+            f"failed to publish"
+
+        )
 
 
 # ============================================================
@@ -1079,4 +1369,5 @@ def main():
 # ============================================================
 
 if __name__ == "__main__":
+
     main()
