@@ -65,12 +65,54 @@ COMPETITIONS = {
 
 
 # ============================================================
+# EVENTS THAT CAN BE PUBLISHED
+# ============================================================
+
+PUBLISHABLE_EVENT_TYPES = {
+
+    "goal",
+    "yellow_card",
+    "red_card",
+    "substitution",
+    "var",
+    "penalty",
+
+    "kickoff",
+    "start_2nd_half",
+    "halftime",
+    "fulltime",
+
+}
+
+
+# ============================================================
+# EVENTS THAT MUST NEVER BE PUBLISHED
+# ============================================================
+
+IGNORED_EVENT_TYPES = {
+
+    "other",
+
+    "delay",
+    "start_delay",
+    "end_delay",
+    "game_delay",
+    "weather_delay",
+
+    "review",
+    "official_review",
+
+}
+
+
+# ============================================================
 # SUPABASE HEADERS
 # ============================================================
 
 SUPABASE_HEADERS = {
 
-    "apikey": SUPABASE_KEY,
+    "apikey":
+        SUPABASE_KEY,
 
     "Authorization":
         f"Bearer {SUPABASE_KEY}",
@@ -79,8 +121,7 @@ SUPABASE_HEADERS = {
         "application/json",
 
     "Prefer":
-        "resolution=merge-duplicates,"
-        "return=minimal",
+        "resolution=merge-duplicates,return=minimal",
 
 }
 
@@ -130,7 +171,7 @@ def validate_environment():
 
 
 # ============================================================
-# RETRY
+# RETRY WITH EXPONENTIAL BACKOFF
 # ============================================================
 
 def retry_call(
@@ -162,8 +203,7 @@ def retry_call(
 
             log(
                 f"{label} failed "
-                f"(attempt {attempt}/"
-                f"{MAX_RETRIES}): "
+                f"({attempt}/{MAX_RETRIES}): "
                 f"{error}"
             )
 
@@ -208,12 +248,14 @@ def espn_get(
             return response.json()
 
         if response.status_code in {
+
             408,
             429,
             500,
             502,
             503,
             504,
+
         }:
 
             raise RuntimeError(
@@ -222,11 +264,9 @@ def espn_get(
             )
 
         raise RuntimeError(
-
             f"ESPN HTTP "
             f"{response.status_code}: "
             f"{response.text[:500]}"
-
         )
 
     return retry_call(
@@ -275,17 +315,21 @@ def supabase_request(
         )
 
         if response.status_code in {
+
             200,
             201,
             204,
+
         }:
 
             if not response.content:
+
                 return []
 
             return response.json()
 
         if response.status_code in {
+
             408,
             409,
             429,
@@ -293,21 +337,18 @@ def supabase_request(
             502,
             503,
             504,
+
         }:
 
             raise RuntimeError(
-
                 f"Supabase transient HTTP "
                 f"{response.status_code}"
-
             )
 
         raise RuntimeError(
-
             f"Supabase {table} "
             f"HTTP {response.status_code}: "
             f"{response.text[:500]}"
-
         )
 
     return retry_call(
@@ -320,17 +361,16 @@ def supabase_request(
 # DATETIME
 # ============================================================
 
-def parse_datetime(
-    value,
-):
+def parse_datetime(value):
+
+    if not value:
+        return None
 
     return datetime.fromisoformat(
-
         value.replace(
             "Z",
             "+00:00"
         )
-
     )
 
 
@@ -344,7 +384,7 @@ def get_target_dates():
         TIMEZONE
     ).date()
 
-    return {
+    return [
 
         today - timedelta(
             days=1
@@ -356,7 +396,28 @@ def get_target_dates():
             days=1
         ),
 
-    }
+    ]
+
+
+# ============================================================
+# SAFE INTEGER
+# ============================================================
+
+def safe_int(value):
+
+    if value is None:
+        return None
+
+    try:
+
+        return int(value)
+
+    except (
+        TypeError,
+        ValueError,
+    ):
+
+        return None
 
 
 # ============================================================
@@ -376,10 +437,6 @@ def get_league_teams(
         url
     )
 
-
-# ============================================================
-# EXTRACT TEAMS
-# ============================================================
 
 def extract_teams_from_response(
     data,
@@ -415,10 +472,6 @@ def extract_teams_from_response(
 
     return teams
 
-
-# ============================================================
-# EXTRACT TEAMS FROM MATCHES
-# ============================================================
 
 def extract_teams_from_events(
     events,
@@ -541,10 +594,6 @@ def upsert_espn_teams(
     if not records:
         return {}
 
-    # مهم:
-    # لا نرسل name_ar
-    # حتى لا نمسح الاسم العربي الموجود.
-
     supabase_request(
 
         "POST",
@@ -585,7 +634,7 @@ def upsert_espn_teams(
                 + ")",
 
             "select":
-                "id,source,source_team_id,name,name_ar",
+                "id,source,source_team_id",
 
         },
 
@@ -609,7 +658,7 @@ def upsert_espn_teams(
 
 
 # ============================================================
-# SYNC TEAMS
+# SYNC ALL TEAMS
 # ============================================================
 
 def sync_all_league_teams():
@@ -660,7 +709,7 @@ def sync_all_league_teams():
             continue
 
     log(
-        f"=== TEAM SYNC END === "
+        "=== TEAM SYNC END === "
         f"total={len(team_db_ids)}"
     )
 
@@ -702,11 +751,9 @@ def get_competition_id(
     if not rows:
 
         raise RuntimeError(
-
             f"Competition "
             f"{competition_code} "
             f"not found in Supabase"
-
         )
 
     return rows[0]["id"]
@@ -769,7 +816,7 @@ def get_match_summary(
 
 
 # ============================================================
-# STATUS
+# MATCH STATUS
 # ============================================================
 
 def normalize_status(
@@ -816,17 +863,21 @@ def normalize_status(
     ).upper()
 
     if state in {
+
         "IN",
         "IN_PLAY",
         "IN_PROGRESS",
         "LIVE",
+
     }:
 
         return "IN_PLAY"
 
     if state in {
+
         "PAUSED",
         "HALFTIME",
+
     }:
 
         return "PAUSED"
@@ -838,47 +889,26 @@ def normalize_status(
         return "POSTPONED"
 
     if state in {
+
         "CANCELED",
         "CANCELLED",
+
     }:
 
         return "CANCELED"
 
     if state in {
+
         "POST",
         "FINAL",
         "FINISHED",
         "COMPLETE",
+
     }:
 
         return "FINISHED"
 
     return "SCHEDULED"
-
-
-# ============================================================
-# SCORE
-# ============================================================
-
-def safe_int(
-    value,
-):
-
-    if value is None:
-        return None
-
-    try:
-
-        return int(
-            value
-        )
-
-    except (
-        TypeError,
-        ValueError,
-    ):
-
-        return None
 
 
 # ============================================================
@@ -925,9 +955,7 @@ def prepare_match(
             f"{event_id}"
         )
 
-    competition = (
-        competitions[0]
-    )
+    competition = competitions[0]
 
     competitors = (
         competition.get(
@@ -936,49 +964,36 @@ def prepare_match(
         )
     )
 
-    home = next(
-
-        (
-            item
-
-            for item in competitors
-
-            if item.get(
-                "homeAway"
-            ) == "home"
-
-        ),
-
-        None
-
-    )
-
-    away = next(
-
-        (
-            item
-
-            for item in competitors
-
-            if item.get(
-                "homeAway"
-            ) == "away"
-
-        ),
-
-        None
-
-    )
-
-    if not home or not away:
+    if len(competitors) < 2:
 
         raise RuntimeError(
-
-            f"Missing home/away "
-            f"teams for event "
-            f"{event_id}"
-
+            f"Event {event_id} "
+            f"does not contain "
+            f"two competitors"
         )
+
+    home = None
+    away = None
+
+    for competitor in competitors:
+
+        home_away = competitor.get(
+            "homeAway"
+        )
+
+        if home_away == "home":
+
+            home = competitor
+
+        elif home_away == "away":
+
+            away = competitor
+
+    if home is None:
+        home = competitors[0]
+
+    if away is None:
+        away = competitors[1]
 
     home_team = home.get(
         "team",
@@ -990,98 +1005,78 @@ def prepare_match(
         {}
     )
 
-    home_source_id = str(
+    home_source_id = (
         home_team.get(
             "id"
         )
     )
 
-    away_source_id = str(
+    away_source_id = (
         away_team.get(
             "id"
         )
     )
 
+    if (
+        home_source_id is None
+        or
+        away_source_id is None
+    ):
+
+        raise RuntimeError(
+            f"Missing team IDs "
+            f"for event {event_id}"
+        )
+
     home_db_id = team_db_ids.get(
         (
             "espn",
-            home_source_id
+            str(
+                home_source_id
+            ),
         )
     )
 
     away_db_id = team_db_ids.get(
         (
             "espn",
-            away_source_id
+            str(
+                away_source_id
+            ),
         )
     )
 
-    if (
-        home_db_id is None
-        or
-        away_db_id is None
-    ):
+    kickoff = parse_datetime(
+        event_date
+    )
 
-        extra_teams = (
-            extract_teams_from_events(
-                [event]
-            )
-        )
-
-        extra_ids = (
-            upsert_espn_teams(
-                extra_teams
-            )
-        )
-
-        team_db_ids.update(
-            extra_ids
-        )
-
-        home_db_id = team_db_ids.get(
-            (
-                "espn",
-                home_source_id
-            )
-        )
-
-        away_db_id = team_db_ids.get(
-            (
-                "espn",
-                away_source_id
-            )
-        )
-
-    if (
-        home_db_id is None
-        or
-        away_db_id is None
-    ):
+    if kickoff is None:
 
         raise RuntimeError(
-
-            f"Could not map teams "
+            f"Invalid kickoff "
             f"for event {event_id}"
-
         )
 
     local_datetime = (
-        parse_datetime(
-            event_date
-        ).astimezone(
+        kickoff.astimezone(
             TIMEZONE
         )
     )
 
     season = (
+
         event.get(
             "season",
             {}
-        ).get(
+        )
+        .get(
             "year"
         )
+
         or
+
         fallback_season
+
     )
 
     return {
@@ -1131,6 +1126,8 @@ def prepare_match(
                 home_team.get(
                     "name"
                 )
+                or
+                "Home"
             ),
 
         "away_team_name":
@@ -1142,6 +1139,8 @@ def prepare_match(
                 away_team.get(
                     "name"
                 )
+                or
+                "Away"
             ),
 
         "status":
@@ -1162,19 +1161,6 @@ def prepare_match(
                     "score"
                 )
             ),
-
-        "venue":
-            competition.get(
-                "venue",
-                {}
-            ).get(
-                "fullName"
-            ),
-
-        "last_updated_at":
-            datetime.now(
-                TIMEZONE
-            ).isoformat(),
 
     }
 
@@ -1207,7 +1193,7 @@ def upsert_matches(
 
 
 # ============================================================
-# GET MATCH DB IDS
+# GET INTERNAL MATCH IDS
 # ============================================================
 
 def get_match_db_ids(
@@ -1261,55 +1247,88 @@ def get_match_db_ids(
 
 
 # ============================================================
-# EVENT TYPE
+# EVENT TYPE DETECTION
 # ============================================================
 
 def detect_event_type(
     detail,
 ):
 
-    event_type = detail.get(
-        "type",
-        {}
+    event_type = (
+        detail.get(
+            "type",
+            {}
+        )
+        or {}
     )
 
     text = (
 
         event_type.get(
-            "text",
-            ""
+            "text"
         )
 
         or
 
         event_type.get(
-            "name",
-            ""
+            "name"
         )
 
         or ""
 
     ).lower()
 
+    # --------------------------------------------------------
+    # IMPORTANT:
+    # Technical ESPN events are ignored.
+    # --------------------------------------------------------
+
+    if any(
+
+        value in text
+
+        for value in [
+
+            "delay",
+            "postponed",
+            "weather",
+            "official review",
+
+        ]
+
+    ):
+
+        return "other"
+
+    # --------------------------------------------------------
+    # Substitution
+    # --------------------------------------------------------
+
     if (
         "substitution" in text
+        or
+        "substitute" in text
         or
         "sub" in text
     ):
 
         return "substitution"
 
+    # --------------------------------------------------------
+    # Cards
+    # --------------------------------------------------------
+
     if "yellow" in text:
 
         return "yellow_card"
 
-    if (
-        "red" in text
-        or
-        "sending off" in text
-    ):
+    if "red" in text:
 
         return "red_card"
+
+    # --------------------------------------------------------
+    # Goal
+    # --------------------------------------------------------
 
     if (
         "goal" in text
@@ -1321,79 +1340,105 @@ def detect_event_type(
 
         return "goal"
 
+    # --------------------------------------------------------
+    # VAR
+    # --------------------------------------------------------
+
     if (
         "var" in text
+        or
+        "video review" in text
         or
         "review" in text
     ):
 
         return "var"
 
+    # --------------------------------------------------------
+    # Penalty
+    # --------------------------------------------------------
+
     if "penalty" in text:
 
         return "penalty"
+
+    # --------------------------------------------------------
+    # Kickoff
+    # --------------------------------------------------------
 
     if (
         "kickoff" in text
         or
         "kick off" in text
+        or
+        "match started" in text
     ):
 
         return "kickoff"
 
+    # --------------------------------------------------------
+    # Second half
+    # --------------------------------------------------------
+
     if (
-        "half" in text
-        and
+        "second half" in text
+        or
         (
+            "half" in text
+            and
             "start" in text
         )
     ):
 
         return "start_2nd_half"
 
+    # --------------------------------------------------------
+    # Half time
+    # --------------------------------------------------------
+
     if (
-        "half" in text
-        and
+        "halftime" in text
+        or
+        "half time" in text
+        or
         (
-            "end" in text
-            or
-            "time" in text
+            "half" in text
+            and
+            (
+                "end" in text
+                or
+                "ended" in text
+            )
         )
     ):
 
         return "halftime"
 
+    # --------------------------------------------------------
+    # Full time
+    # --------------------------------------------------------
+
     if (
-        "end" in text
-        and
-        (
-            "game" in text
-            or
-            "match" in text
-            or
-            "regular" in text
-        )
+        "full time" in text
+        or
+        "fulltime" in text
+        or
+        "match ended" in text
+        or
+        "game ended" in text
     ):
 
         return "fulltime"
 
-    cleaned = (
-        text
-        .replace(
-            " ",
-            "_"
-        )
-        .replace(
-            "-",
-            "_"
-        )
-    )
+    # --------------------------------------------------------
+    # Unknown = OTHER
+    #
+    # NEVER return raw ESPN type here.
+    # This is what prevents start_delay/end_delay
+    # from becoming publishable events.
+    # --------------------------------------------------------
 
-    return (
-        cleaned
-        or
-        "other"
-    )
+    return "other"
 
 
 # ============================================================
@@ -1431,27 +1476,165 @@ def make_event_key(
 
         ensure_ascii=False,
 
-        separators=(
-            ",",
-            ":"
-        ),
-
     )
 
     digest = hashlib.sha256(
-
         raw.encode(
             "utf-8"
         )
-
     ).hexdigest()[:24]
 
     return (
-
         f"{match_source_id}:"
         f"{index}:"
         f"{digest}"
+    )
 
+
+# ============================================================
+# ATHLETE NAME
+# ============================================================
+
+def athlete_name(
+    athlete,
+):
+
+    if not isinstance(
+        athlete,
+        dict
+    ):
+
+        return ""
+
+    return (
+
+        athlete.get(
+            "displayName"
+        )
+
+        or
+
+        athlete.get(
+            "fullName"
+        )
+
+        or
+
+        athlete.get(
+            "shortName"
+        )
+
+        or
+
+        athlete.get(
+            "name"
+        )
+
+        or ""
+
+    )
+
+
+# ============================================================
+# CLOCK
+# ============================================================
+
+def extract_clock(
+    detail,
+):
+
+    clock = (
+        detail.get(
+            "clock",
+            {}
+        )
+        or {}
+    )
+
+    clock_value = clock.get(
+        "value"
+    )
+
+    display_clock = (
+        clock.get(
+            "displayValue"
+        )
+        or
+        ""
+    )
+
+    minute = None
+    extra_time = None
+
+    if isinstance(
+        clock_value,
+        (
+            int,
+            float,
+        )
+    ):
+
+        total_seconds = int(
+            clock_value
+        )
+
+        minute = (
+            total_seconds // 60
+        )
+
+        seconds = (
+            total_seconds % 60
+        )
+
+        if seconds >= 30:
+
+            minute += 1
+
+    if display_clock:
+
+        display_text = (
+            str(
+                display_clock
+            )
+            .replace(
+                " ",
+                ""
+            )
+        )
+
+        if "+" in display_text:
+
+            try:
+
+                parts = (
+                    display_text
+                    .replace(
+                        "'",
+                        ""
+                    )
+                    .split(
+                        "+"
+                    )
+                )
+
+                minute = int(
+                    parts[0]
+                )
+
+                extra_time = int(
+                    parts[1]
+                )
+
+            except (
+                TypeError,
+                ValueError,
+            ):
+
+                pass
+
+    return (
+        minute,
+        extra_time,
     )
 
 
@@ -1506,77 +1689,25 @@ def prepare_match_events(
 
             continue
 
-        event_type = (
-            detect_event_type(
+        event_type = detect_event_type(
+            detail
+        )
+
+        # ----------------------------------------------------
+        # NEVER store technical / unknown events.
+        # ----------------------------------------------------
+
+        if event_type in IGNORED_EVENT_TYPES:
+            continue
+
+        if event_type not in PUBLISHABLE_EVENT_TYPES:
+            continue
+
+        minute, extra_time = (
+            extract_clock(
                 detail
             )
         )
-
-        clock = (
-            detail.get(
-                "clock",
-                {}
-            )
-            or {}
-        )
-
-        clock_value = (
-            clock.get(
-                "value"
-            )
-        )
-
-        display_clock = (
-            clock.get(
-                "displayValue",
-                ""
-            )
-        )
-
-        minute = None
-
-        if isinstance(
-            clock_value,
-            (
-                int,
-                float
-            )
-        ):
-
-            minute = int(
-                clock_value // 60
-            )
-
-        extra_time = None
-
-        if "+" in str(
-            display_clock
-        ):
-
-            try:
-
-                extra_time = int(
-
-                    str(
-                        display_clock
-                    )
-                    .split(
-                        "+",
-                        1
-                    )[1]
-                    .replace(
-                        "'",
-                        ""
-                    )
-
-                )
-
-            except (
-                ValueError,
-                IndexError,
-            ):
-
-                pass
 
         team = (
             detail.get(
@@ -1595,21 +1726,69 @@ def prepare_match_events(
 
         player = (
             athletes[0]
-            if athletes
+            if len(athletes) >= 1
             else {}
         )
 
         assist = (
-
             athletes[1]
-
-            if len(
-                athletes
-            ) > 1
-
+            if len(athletes) >= 2
             else {}
-
         )
+
+        player_out = {}
+        player_in = {}
+
+        if event_type == "substitution":
+
+            # ESPN may return different ordering.
+            # First try explicit fields.
+
+            explicit_out = (
+                detail.get(
+                    "playerOut"
+                )
+                or
+                detail.get(
+                    "athleteOut"
+                )
+                or
+                detail.get(
+                    "substitutionOut"
+                )
+            )
+
+            explicit_in = (
+                detail.get(
+                    "playerIn"
+                )
+                or
+                detail.get(
+                    "athleteIn"
+                )
+                or
+                detail.get(
+                    "substitutionIn"
+                )
+            )
+
+            if explicit_out:
+                player_out = explicit_out
+
+            if explicit_in:
+                player_in = explicit_in
+
+            # Fallback to athletesInvolved.
+            if (
+                not player_out
+                and
+                not player_in
+                and
+                len(athletes) >= 2
+            ):
+
+                player_out = athletes[0]
+                player_in = athletes[1]
 
         def text_id(
             value
@@ -1658,8 +1837,16 @@ def prepare_match_events(
                 ),
 
             "team_name":
-                team.get(
-                    "displayName"
+                (
+                    team.get(
+                        "displayName"
+                    )
+                    or
+                    team.get(
+                        "name"
+                    )
+                    or
+                    None
                 ),
 
             "player_id":
@@ -1670,8 +1857,8 @@ def prepare_match_events(
                 ),
 
             "player_name":
-                player.get(
-                    "displayName"
+                athlete_name(
+                    player
                 ),
 
             "assist_player_id":
@@ -1682,21 +1869,43 @@ def prepare_match_events(
                 ),
 
             "assist_player_name":
-                assist.get(
-                    "displayName"
+                athlete_name(
+                    assist
                 ),
 
             "player_out_id":
-                None,
+                text_id(
+                    player_out.get(
+                        "id"
+                    )
+                    if isinstance(
+                        player_out,
+                        dict
+                    )
+                    else None
+                ),
 
             "player_out_name":
-                None,
+                athlete_name(
+                    player_out
+                ),
 
             "player_in_id":
-                None,
+                text_id(
+                    player_in.get(
+                        "id"
+                    )
+                    if isinstance(
+                        player_in,
+                        dict
+                    )
+                    else None
+                ),
 
             "player_in_name":
-                None,
+                athlete_name(
+                    player_in
+                ),
 
             "card":
                 None,
@@ -1721,69 +1930,25 @@ def prepare_match_events(
         }
 
         if event_type in {
+
             "yellow_card",
             "red_card",
+
         }:
 
-            record["card"] = (
-
+            card_type = (
                 detail.get(
                     "type",
                     {}
-                ).get(
-                    "text"
                 )
-
+                or {}
             )
 
-        if (
-            event_type ==
-            "substitution"
-        ):
-
-            if len(
-                athletes
-            ) >= 2:
-
-                player_out = (
-                    athletes[0]
+            record["card"] = (
+                card_type.get(
+                    "text"
                 )
-
-                player_in = (
-                    athletes[1]
-                )
-
-                record[
-                    "player_out_id"
-                ] = text_id(
-                    player_out.get(
-                        "id"
-                    )
-                )
-
-                record[
-                    "player_out_name"
-                ] = (
-                    player_out.get(
-                        "displayName"
-                    )
-                )
-
-                record[
-                    "player_in_id"
-                ] = text_id(
-                    player_in.get(
-                        "id"
-                    )
-                )
-
-                record[
-                    "player_in_name"
-                ] = (
-                    player_in.get(
-                        "displayName"
-                    )
-                )
+            )
 
         records.append(
             record
@@ -1810,8 +1975,10 @@ def upsert_match_events(
         "match_events",
 
         {
+
             "on_conflict":
                 "source,source_event_key"
+
         },
 
         records,
@@ -1824,22 +1991,20 @@ def upsert_match_events(
 
 
 # ============================================================
-# PROCESS LEAGUE
+# SYNC ONE LEAGUE
 # ============================================================
 
-def process_league(
+def sync_league(
 
     league_name,
 
     league,
 
-    target_dates,
-
-    season,
-
-    totals,
+    dates,
 
     team_db_ids,
+
+    totals,
 
 ):
 
@@ -1847,93 +2012,95 @@ def process_league(
         f"=== {league_name} START ==="
     )
 
-    competition_id = (
-        get_competition_id(
-            league["code"]
-        )
+    competition_id = get_competition_id(
+        league["code"]
     )
 
-    all_events = []
+    all_events = {}
 
     # --------------------------------------------------------
-    # SCOREBOARDS
+    # SCOREBOARD
     # --------------------------------------------------------
 
-    for target_date in sorted(
-        target_dates
-    ):
+    for target_date in dates:
 
-        data = (
-            get_league_scoreboard(
+        try:
+
+            data = get_league_scoreboard(
 
                 league["slug"],
 
                 target_date,
 
             )
-        )
 
-        day_events = (
-            data.get(
-                "events",
-                []
+            events = (
+                data.get(
+                    "events",
+                    []
+                )
             )
-        )
 
-        log(
+            for event in events:
 
-            f"{league_name} "
-            f"{target_date}: "
-            f"{len(day_events)} matches"
+                event_id = event.get(
+                    "id"
+                )
 
-        )
+                if event_id:
 
-        all_events.extend(
-            day_events
-        )
+                    all_events[
+                        str(event_id)
+                    ] = event
 
-    # --------------------------------------------------------
-    # REMOVE DUPLICATES
-    # --------------------------------------------------------
+        except Exception as error:
 
-    unique_events = {
+            log(
+                f"ERROR scoreboard "
+                f"{league_name} "
+                f"{target_date}: "
+                f"{error}"
+            )
 
-        str(
-            event["id"]
-        ):
-            event
-
-        for event in all_events
-
-        if event.get(
-            "id"
-        )
-
-    }
+            continue
 
     events = list(
-        unique_events.values()
+        all_events.values()
     )
 
+    log(
+        f"{league_name}: "
+        f"{len(events)} matches from ESPN"
+    )
+
+    if not events:
+
+        log(
+            f"=== {league_name} END === "
+            "no matches"
+        )
+
+        return
+
     # --------------------------------------------------------
-    # TEAMS FROM MATCHES
+    # SYNC TEAMS FROM MATCHES
     # --------------------------------------------------------
 
-    event_teams = (
+    match_teams = (
         extract_teams_from_events(
             events
         )
     )
 
-    team_ids = (
-        upsert_espn_teams(
-            event_teams
-        )
-    )
+    if match_teams:
 
-    team_db_ids.update(
-        team_ids
-    )
+        ids = upsert_espn_teams(
+            match_teams
+        )
+
+        team_db_ids.update(
+            ids
+        )
 
     # --------------------------------------------------------
     # PREPARE MATCHES
@@ -1943,55 +2110,48 @@ def process_league(
 
     selected_events = []
 
+    fallback_season = str(
+        datetime.now(
+            TIMEZONE
+        ).year
+    )
+
     for event in events:
 
-        event_date = event.get(
-            "date"
-        )
+        try:
 
-        if not event_date:
-            continue
+            record = prepare_match(
 
-        local_date = (
+                event,
 
-            parse_datetime(
-                event_date
+                competition_id,
+
+                league_name,
+
+                fallback_season,
+
+                team_db_ids,
+
             )
-            .astimezone(
-                TIMEZONE
+
+            match_records.append(
+                record
             )
-            .date()
 
-        )
+            selected_events.append(
+                event
+            )
 
-        if (
-            local_date
-            not in target_dates
-        ):
+        except Exception as error:
+
+            log(
+                f"ERROR preparing "
+                f"match "
+                f"{event.get('id')}: "
+                f"{error}"
+            )
 
             continue
-
-        record = prepare_match(
-
-            event,
-
-            competition_id,
-
-            league_name,
-
-            season,
-
-            team_db_ids,
-
-        )
-
-        match_records.append(
-            record
-        )
-
-        selected_events.append(
-            event
-        )
 
     # --------------------------------------------------------
     # UPSERT MATCHES
@@ -2008,7 +2168,7 @@ def process_league(
     )
 
     # --------------------------------------------------------
-    # GET INTERNAL IDS
+    # GET INTERNAL MATCH IDS
     # --------------------------------------------------------
 
     match_db_ids = (
@@ -2026,65 +2186,29 @@ def process_league(
         )
     )
 
-    # --------------------------------------------------------
-    # EVENTS
-    # --------------------------------------------------------
-
-    today = datetime.now(
-        TIMEZONE
-    ).date()
-
     league_event_count = 0
+
+    # --------------------------------------------------------
+    # MATCH EVENTS
+    # --------------------------------------------------------
 
     for event in selected_events:
 
-        match_db_id = (
-            match_db_ids.get(
-                str(
-                    event["id"]
-                )
-            )
+        source_match_id = str(
+            event["id"]
         )
 
-        if match_db_id is None:
-
-            raise RuntimeError(
-
-                f"Missing database ID "
-                f"for ESPN event "
-                f"{event['id']}"
-
-            )
-
-        status = normalize_status(
-            event
+        match_db_id = match_db_ids.get(
+            source_match_id
         )
 
-        event_date = (
+        if not match_db_id:
 
-            parse_datetime(
-                event["date"]
+            log(
+                f"WARNING: internal "
+                f"match ID not found "
+                f"for {source_match_id}"
             )
-            .astimezone(
-                TIMEZONE
-            )
-            .date()
-
-        )
-
-        # ----------------------------------------------------
-        # FUTURE MATCH
-        #
-        # Don't request summary unnecessarily.
-        # ----------------------------------------------------
-
-        if (
-            status ==
-            "SCHEDULED"
-            and
-            event_date >
-            today
-        ):
 
             continue
 
@@ -2120,31 +2244,23 @@ def process_league(
 
                     f"Events updated: "
                     f"{league_name} "
-                    f"match={event['id']} "
+                    f"match={source_match_id} "
                     f"events={saved}"
 
                 )
 
         except Exception as error:
 
-            # ------------------------------------------------
-            # Important:
-            # Match itself has already been saved.
-            # If event fetching fails, don't lose the match.
-            # ------------------------------------------------
-
             log(
 
-                f"ERROR events for "
+                f"ERROR events "
                 f"{league_name} "
-                f"match={event['id']}: "
+                f"match={source_match_id}: "
                 f"{error}"
 
             )
 
-            totals[
-                "event_errors"
-            ] += 1
+            continue
 
     log(
 
@@ -2163,20 +2279,43 @@ def main():
 
     validate_environment()
 
-    now = datetime.now(
-        TIMEZONE
+    log(
+        "=================================================="
     )
 
-    target_dates = (
-        get_target_dates()
+    log(
+        "ESPN FIXTURES SYNC START"
     )
 
-    # الموسم يبدأ عادة في يوليو.
-    season = (
-        now.year
-        if now.month >= 7
-        else now.year - 1
+    log(
+        "Architecture: ESPN -> Python -> Supabase"
     )
+
+    log(
+        "=================================================="
+    )
+
+    dates = get_target_dates()
+
+    log(
+        "Target dates: "
+        + ", ".join(
+            str(date)
+            for date in dates
+        )
+    )
+
+    # --------------------------------------------------------
+    # TEAMS
+    # --------------------------------------------------------
+
+    team_db_ids = (
+        sync_all_league_teams()
+    )
+
+    # --------------------------------------------------------
+    # TOTALS
+    # --------------------------------------------------------
 
     totals = {
 
@@ -2186,64 +2325,13 @@ def main():
         "events":
             0,
 
-        "event_errors":
-            0,
-
     }
-
-    errors = []
-
-    log(
-        "=================================================="
-    )
-
-    log(
-        "ESPN FOOTBALL DATA PIPELINE START"
-    )
-
-    log(
-        f"Target dates: "
-        f"{sorted(target_dates)}"
-    )
-
-    log(
-        f"Season: {season}"
-    )
-
-    log(
-        "Mode: UPSERT / IDEMPOTENT / NO DELETE"
-    )
-
-    log(
-        "=================================================="
-    )
-
-    # --------------------------------------------------------
-    # TEAMS
-    # --------------------------------------------------------
-
-    try:
-
-        team_db_ids = (
-            sync_all_league_teams()
-        )
-
-    except Exception as error:
-
-        team_db_ids = {}
-
-        errors.append(
-            f"Team sync: {error}"
-        )
-
-        log(
-            f"CRITICAL TEAM SYNC ERROR: "
-            f"{error}"
-        )
 
     # --------------------------------------------------------
     # LEAGUES
     # --------------------------------------------------------
+
+    failed_leagues = []
 
     for league_name, league in (
         COMPETITIONS.items()
@@ -2251,39 +2339,33 @@ def main():
 
         try:
 
-            process_league(
+            sync_league(
 
                 league_name,
 
                 league,
 
-                target_dates,
-
-                season,
-
-                totals,
+                dates,
 
                 team_db_ids,
+
+                totals,
 
             )
 
         except Exception as error:
 
-            errors.append(
-
-                f"{league_name}: "
-                f"{error}"
-
+            failed_leagues.append(
+                league_name
             )
 
             log(
 
-                f"ERROR {league_name}: "
+                f"FATAL league error "
+                f"{league_name}: "
                 f"{error}"
 
             )
-
-            # Continue with next league.
 
             continue
 
@@ -2296,7 +2378,7 @@ def main():
     )
 
     log(
-        "ESPN FOOTBALL DATA PIPELINE END"
+        "ESPN FIXTURES SYNC END"
     )
 
     log(
@@ -2309,31 +2391,38 @@ def main():
         f"{totals['events']}"
     )
 
-    log(
-        f"Event errors: "
-        f"{totals['event_errors']}"
-    )
+    if failed_leagues:
 
-    log(
-        f"League errors: "
-        f"{len(errors)}"
-    )
+        log(
+            "Failed leagues: "
+            + ", ".join(
+                failed_leagues
+            )
+        )
+
+    else:
+
+        log(
+            "Failed leagues: none"
+        )
 
     log(
         "=================================================="
     )
 
-    if errors:
+    # --------------------------------------------------------
+    # If every league failed, mark workflow as failed.
+    # A single league/API problem should not kill all data.
+    # --------------------------------------------------------
 
-        for error in errors:
-
-            log(
-                f"PIPELINE ERROR: "
-                f"{error}"
-            )
+    if len(
+        failed_leagues
+    ) == len(
+        COMPETITIONS
+    ):
 
         raise RuntimeError(
-            "One or more pipeline sections failed."
+            "All competitions failed"
         )
 
 
