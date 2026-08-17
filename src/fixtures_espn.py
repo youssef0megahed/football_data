@@ -24,7 +24,7 @@ ESPN_BASE_URL = (
 
 
 # ============================================================
-# FIVE BIG LEAGUES
+# COMPETITIONS
 # ============================================================
 
 COMPETITIONS = {
@@ -89,16 +89,11 @@ SUPABASE_HEADERS = {
 
 def get_target_dates():
 
-    now = datetime.now(
-        TIMEZONE
-    )
+    now = datetime.now(TIMEZONE)
 
     today = now.date()
 
-    yesterday = (
-        today -
-        timedelta(days=1)
-    )
+    yesterday = today - timedelta(days=1)
 
     return yesterday, today
 
@@ -109,9 +104,7 @@ def get_target_dates():
 
 def get_current_season():
 
-    now = datetime.now(
-        TIMEZONE
-    )
+    now = datetime.now(TIMEZONE)
 
     if now.month >= 7:
         return now.year
@@ -120,29 +113,10 @@ def get_current_season():
 
 
 # ============================================================
-# DATETIME
+# ESPN GET
 # ============================================================
 
-def parse_datetime(value):
-
-    return datetime.fromisoformat(
-
-        value.replace(
-            "Z",
-            "+00:00"
-        )
-
-    )
-
-
-# ============================================================
-# ESPN REQUEST
-# ============================================================
-
-def espn_get(
-    url,
-    params=None
-):
+def espn_get(url, params=None):
 
     response = requests.get(
 
@@ -150,7 +124,7 @@ def espn_get(
 
         params=params,
 
-        timeout=REQUEST_TIMEOUT
+        timeout=REQUEST_TIMEOUT,
 
     )
 
@@ -172,25 +146,25 @@ def espn_get(
 # ============================================================
 
 def get_league_scoreboard(
-    slug,
-    date
+    league_slug,
+    target_date,
 ):
 
     url = (
         f"{ESPN_BASE_URL}/"
-        f"{slug}/scoreboard"
+        f"{league_slug}/scoreboard"
     )
 
     params = {
 
         "dates":
-            date.strftime("%Y%m%d")
+            target_date.strftime("%Y%m%d"),
 
     }
 
     return espn_get(
         url,
-        params
+        params,
     )
 
 
@@ -200,7 +174,7 @@ def get_league_scoreboard(
 
 def get_match_summary(
     event_id,
-    league_slug
+    league_slug,
 ):
 
     url = (
@@ -211,13 +185,13 @@ def get_match_summary(
     params = {
 
         "event":
-            str(event_id)
+            str(event_id),
 
     }
 
     return espn_get(
         url,
-        params
+        params,
     )
 
 
@@ -233,7 +207,7 @@ def supabase_request(
 
     params=None,
 
-    json_body=None
+    json_body=None,
 
 ):
 
@@ -266,14 +240,14 @@ def supabase_request(
 
         json=json_body,
 
-        timeout=REQUEST_TIMEOUT
+        timeout=REQUEST_TIMEOUT,
 
     )
 
     if response.status_code not in [
         200,
         201,
-        204
+        204,
     ]:
 
         raise Exception(
@@ -293,11 +267,11 @@ def supabase_request(
 
 
 # ============================================================
-# GET SUPABASE COMPETITION ID
+# GET COMPETITION ID
 # ============================================================
 
 def get_competition_id(
-    competition_code
+    competition_code,
 ):
 
     data = supabase_request(
@@ -315,9 +289,9 @@ def get_competition_id(
                 "eq.espn",
 
             "select":
-                "id,code,name"
+                "id,code,name",
 
-        }
+        },
 
     )
 
@@ -327,8 +301,8 @@ def get_competition_id(
 
             f"Competition "
             f"{competition_code} "
-            "does not exist in Supabase "
-            "with source=espn."
+            f"with source=espn "
+            f"does not exist in Supabase."
 
         )
 
@@ -339,63 +313,51 @@ def get_competition_id(
 # UPSERT TEAMS
 # ============================================================
 
-def upsert_teams(
-    events
-):
+def upsert_teams(events):
 
     teams = {}
-
-
-    # --------------------------------------------------------
-    # Extract unique teams
-    # --------------------------------------------------------
 
     for event in events:
 
         competitions = (
             event.get(
                 "competitions",
-                []
+                [],
             )
         )
 
         if not competitions:
             continue
 
-
         competitors = (
             competitions[0].get(
                 "competitors",
-                []
+                [],
             )
         )
-
 
         for competitor in competitors:
 
             team = competitor.get(
                 "team",
-                {}
+                {},
             )
 
-            source_team_id = (
-                team.get("id")
+            source_team_id = team.get(
+                "id"
             )
 
             if source_team_id is None:
                 continue
 
-
             source_team_id = str(
                 source_team_id
             )
 
-
             key = (
                 "espn",
-                source_team_id
+                source_team_id,
             )
-
 
             teams[key] = {
 
@@ -433,14 +395,8 @@ def upsert_teams(
 
             }
 
-
     if not teams:
         return {}
-
-
-    # --------------------------------------------------------
-    # UPSERT
-    # --------------------------------------------------------
 
     supabase_request(
 
@@ -451,29 +407,23 @@ def upsert_teams(
         {
 
             "on_conflict":
-                "source,source_team_id"
+                "source,source_team_id",
 
         },
 
         list(
             teams.values()
-        )
+        ),
 
     )
 
-
-    # --------------------------------------------------------
-    # GET INTERNAL DATABASE IDS
-    # --------------------------------------------------------
-
     source_ids = [
 
-        item["source_team_id"]
+        team["source_team_id"]
 
-        for item in teams.values()
+        for team in teams.values()
 
     ]
-
 
     data = supabase_request(
 
@@ -494,15 +444,13 @@ def upsert_teams(
                 ")",
 
             "select":
-                "id,source,source_team_id"
+                "id,source,source_team_id",
 
-        }
+        },
 
     )
 
-
     result = {}
-
 
     for row in data:
 
@@ -512,13 +460,55 @@ def upsert_teams(
                 row["source"],
                 str(
                     row["source_team_id"]
-                )
+                ),
             )
 
         ] = row["id"]
 
-
     return result
+
+
+# ============================================================
+# PARSE DATETIME
+# ============================================================
+
+def parse_datetime(value):
+
+    return datetime.fromisoformat(
+
+        value.replace(
+            "Z",
+            "+00:00",
+        )
+
+    )
+
+
+# ============================================================
+# GET TEAM NAME
+# ============================================================
+
+def get_team_name(team):
+
+    return (
+
+        team.get(
+            "displayName"
+        )
+
+        or
+
+        team.get(
+            "name"
+        )
+
+        or
+
+        team.get(
+            "shortDisplayName"
+        )
+
+    )
 
 
 # ============================================================
@@ -535,26 +525,20 @@ def prepare_match(
 
     fallback_season,
 
-    team_db_ids
+    team_db_ids,
 
 ):
 
-    event_id = event.get(
-        "id"
-    )
+    event_id = event.get("id")
 
-    event_date = event.get(
-        "date"
-    )
-
+    event_date = event.get("date")
 
     competitions = (
         event.get(
             "competitions",
-            []
+            [],
         )
     )
-
 
     if (
         not event_id
@@ -566,62 +550,36 @@ def prepare_match(
 
         raise Exception(
 
-            f"Invalid ESPN match payload: "
-            f"{event_id}"
+            f"Invalid ESPN match "
+            f"payload: {event_id}"
 
         )
 
-
-    competition = (
-        competitions[0]
-    )
-
+    competition = competitions[0]
 
     competitors = (
         competition.get(
             "competitors",
-            []
+            [],
         )
     )
 
+    home = None
+    away = None
 
-    home = next(
+    for competitor in competitors:
 
-        (
+        if competitor.get(
+            "homeAway"
+        ) == "home":
 
-            item
+            home = competitor
 
-            for item in competitors
+        elif competitor.get(
+            "homeAway"
+        ) == "away":
 
-            if item.get(
-                "homeAway"
-            ) == "home"
-
-        ),
-
-        None
-
-    )
-
-
-    away = next(
-
-        (
-
-            item
-
-            for item in competitors
-
-            if item.get(
-                "homeAway"
-            ) == "away"
-
-        ),
-
-        None
-
-    )
-
+            away = competitor
 
     if not home or not away:
 
@@ -633,21 +591,15 @@ def prepare_match(
 
         )
 
-
-    home_team = (
-        home.get(
-            "team",
-            {}
-        )
+    home_team = home.get(
+        "team",
+        {},
     )
 
-    away_team = (
-        away.get(
-            "team",
-            {}
-        )
+    away_team = away.get(
+        "team",
+        {},
     )
-
 
     home_source_id = str(
         home_team.get("id")
@@ -657,85 +609,77 @@ def prepare_match(
         away_team.get("id")
     )
 
-
     home_db_id = team_db_ids.get(
 
         (
             "espn",
-            home_source_id
+            home_source_id,
         )
 
     )
-
 
     away_db_id = team_db_ids.get(
 
         (
             "espn",
-            away_source_id
+            away_source_id,
         )
 
     )
-
 
     if home_db_id is None:
 
         raise Exception(
 
-            f"Missing Supabase database ID "
+            f"Missing Supabase team ID "
             f"for home team "
-            f"{home_team.get('displayName')} "
+            f"{get_team_name(home_team)} "
             f"({home_source_id})"
 
         )
-
 
     if away_db_id is None:
 
         raise Exception(
 
-            f"Missing Supabase database ID "
+            f"Missing Supabase team ID "
             f"for away team "
-            f"{away_team.get('displayName')} "
+            f"{get_team_name(away_team)} "
             f"({away_source_id})"
 
         )
-
 
     status_type = (
 
         competition
         .get(
             "status",
-            {}
+            {},
         )
         .get(
             "type",
-            {}
+            {},
         )
 
     )
-
 
     local_datetime = (
 
         parse_datetime(
             event_date
         )
-
         .astimezone(
             TIMEZONE
         )
 
     )
 
-
     season = (
 
         event
         .get(
             "season",
-            {}
+            {},
         )
         .get(
             "year"
@@ -747,11 +691,6 @@ def prepare_match(
 
     )
 
-
-    # --------------------------------------------------------
-    # SCORE
-    # --------------------------------------------------------
-
     home_score = home.get(
         "score"
     )
@@ -759,7 +698,6 @@ def prepare_match(
     away_score = away.get(
         "score"
     )
-
 
     try:
 
@@ -775,11 +713,10 @@ def prepare_match(
 
     except (
         TypeError,
-        ValueError
+        ValueError,
     ):
 
         home_score = None
-
 
     try:
 
@@ -795,48 +732,23 @@ def prepare_match(
 
     except (
         TypeError,
-        ValueError
+        ValueError,
     ):
 
         away_score = None
-
-
-    # --------------------------------------------------------
-    # VENUE
-    # --------------------------------------------------------
 
     venue = (
 
         competition
         .get(
             "venue",
-            {}
+            {},
         )
         .get(
             "fullName"
         )
 
     )
-
-
-    # --------------------------------------------------------
-    # LAST UPDATED
-    # --------------------------------------------------------
-
-    last_updated_at = (
-
-        event.get(
-            "lastUpdated"
-        )
-
-        or
-
-        event.get(
-            "date"
-        )
-
-    )
-
 
     return {
 
@@ -877,25 +789,13 @@ def prepare_match(
             away_db_id,
 
         "home_team_name":
-            (
-                home_team.get(
-                    "displayName"
-                )
-                or
-                home_team.get(
-                    "name"
-                )
+            get_team_name(
+                home_team
             ),
 
         "away_team_name":
-            (
-                away_team.get(
-                    "displayName"
-                )
-                or
-                away_team.get(
-                    "name"
-                )
+            get_team_name(
+                away_team
             ),
 
         "status":
@@ -925,7 +825,7 @@ def prepare_match(
             venue,
 
         "last_updated_at":
-            last_updated_at,
+            event_date,
 
     }
 
@@ -934,13 +834,10 @@ def prepare_match(
 # UPSERT MATCHES
 # ============================================================
 
-def upsert_matches(
-    records
-):
+def upsert_matches(records):
 
     if not records:
-        return 0
-
+        return
 
     supabase_request(
 
@@ -951,16 +848,13 @@ def upsert_matches(
         {
 
             "on_conflict":
-                "source,source_match_id"
+                "source,source_match_id",
 
         },
 
-        records
+        records,
 
     )
-
-
-    return len(records)
 
 
 # ============================================================
@@ -968,12 +862,11 @@ def upsert_matches(
 # ============================================================
 
 def get_match_db_ids(
-    source_match_ids
+    source_match_ids,
 ):
 
     if not source_match_ids:
         return {}
-
 
     ids = [
 
@@ -982,7 +875,6 @@ def get_match_db_ids(
         for item in source_match_ids
 
     ]
-
 
     data = supabase_request(
 
@@ -1003,18 +895,18 @@ def get_match_db_ids(
                 ")",
 
             "select":
-                "id,source_match_id"
+                "id,source_match_id",
 
-        }
+        },
 
     )
-
 
     return {
 
         str(
             row["source_match_id"]
         ):
+
         row["id"]
 
         for row in data
@@ -1024,102 +916,110 @@ def get_match_db_ids(
 
 # ============================================================
 # EVENT TYPE
+#
+# IMPORTANT:
+# This is ONLY classification.
+# It NEVER filters events.
 # ============================================================
 
-def get_event_type(
-    detail
-):
+def get_event_type(detail):
 
-    event_type = (
-        detail
-        .get(
-            "type",
-            {}
-        )
-        .get(
-            "text",
-            ""
-        )
-        or
-        ""
+    type_data = detail.get(
+        "type",
+        {},
     )
 
+    if not isinstance(
+        type_data,
+        dict,
+    ):
 
-    text = event_type.lower()
+        type_data = {}
 
+    text = (
 
-    # --------------------------------------------------------
-    # SUBSTITUTION
-    # --------------------------------------------------------
+        type_data.get(
+            "text"
+        )
 
-    if "substitution" in text:
-        return "substitution"
+        or
 
+        type_data.get(
+            "name"
+        )
 
-    # --------------------------------------------------------
-    # CARDS
-    # --------------------------------------------------------
+        or
 
-    if "yellow card" in text:
-        return "yellow_card"
+        ""
 
+    )
 
-    if "red card" in text:
-        return "red_card"
-
-
-    # --------------------------------------------------------
-    # GOALS
-    # --------------------------------------------------------
+    text_lower = text.lower()
 
     if (
-        "goal" in text
-        or
-        detail.get(
-            "scoringPlay"
-        )
+        "substitution"
+        in text_lower
+    ):
+
+        return "substitution"
+
+    if (
+        "yellow"
+        in text_lower
+    ):
+
+        return "yellow_card"
+
+    if (
+        "red"
+        in text_lower
+    ):
+
+        return "red_card"
+
+    if (
+        "goal"
+        in text_lower
     ):
 
         return "goal"
 
+    if detail.get(
+        "scoringPlay"
+    ):
 
-    # --------------------------------------------------------
-    # PENALTY
-    # --------------------------------------------------------
-
-    if "penalty" in text:
-        return "penalty"
-
-
-    # --------------------------------------------------------
-    # VAR
-    # --------------------------------------------------------
+        return "goal"
 
     if (
-        "var" in text
+        "penalty"
+        in text_lower
+    ):
+
+        return "penalty"
+
+    if (
+        "var"
+        in text_lower
         or
-        "review" in text
+        "review"
+        in text_lower
     ):
 
         return "var"
 
+    if text_lower:
 
-    # --------------------------------------------------------
-    # FALLBACK
-    # --------------------------------------------------------
+        return (
 
-    normalized = (
+            text_lower
+            .replace(
+                " ",
+                "_",
+            )
 
-        text
-        .replace(
-            " ",
-            "_"
         )
 
-    )
-
-
-    return normalized or "other"
+    return "other"
 
 
 # ============================================================
@@ -1132,16 +1032,13 @@ def make_event_key(
 
     detail,
 
-    index
+    index,
 
 ):
 
-    source_event_id = (
-        detail.get(
-            "id"
-        )
+    source_event_id = detail.get(
+        "id"
     )
-
 
     if source_event_id:
 
@@ -1151,7 +1048,6 @@ def make_event_key(
             f"{source_event_id}"
 
         )
-
 
     raw = json.dumps(
 
@@ -1163,11 +1059,10 @@ def make_event_key(
 
         separators=(
             ",",
-            ":"
-        )
+            ":",
+        ),
 
     )
-
 
     digest = hashlib.sha256(
 
@@ -1177,7 +1072,6 @@ def make_event_key(
 
     ).hexdigest()[:24]
 
-
     return (
 
         f"{match_source_id}:"
@@ -1185,6 +1079,239 @@ def make_event_key(
         f"{digest}"
 
     )
+
+
+# ============================================================
+# GET ALL ESPN EVENTS
+#
+# We intentionally collect ALL available
+# event-like objects from the summary.
+# ============================================================
+
+def get_all_match_events(
+    summary,
+):
+
+    collected = []
+
+    seen = set()
+
+    # --------------------------------------------------------
+    # keyEvents
+    # --------------------------------------------------------
+
+    key_events = summary.get(
+        "keyEvents",
+        [],
+    )
+
+    if isinstance(
+        key_events,
+        list,
+    ):
+
+        for item in key_events:
+
+            if not isinstance(
+                item,
+                dict,
+            ):
+
+                continue
+
+            raw_id = item.get(
+                "id"
+            )
+
+            fingerprint = (
+
+                f"id:{raw_id}"
+
+                if raw_id
+
+                else
+
+                json.dumps(
+                    item,
+                    sort_keys=True,
+                    ensure_ascii=False,
+                )
+
+            )
+
+            if fingerprint in seen:
+                continue
+
+            seen.add(
+                fingerprint
+            )
+
+            collected.append(
+                item
+            )
+
+    # --------------------------------------------------------
+    # details
+    #
+    # Only add details that are not already
+    # represented in keyEvents.
+    # --------------------------------------------------------
+
+    details = summary.get(
+        "details",
+        [],
+    )
+
+    if isinstance(
+        details,
+        list,
+    ):
+
+        for item in details:
+
+            if not isinstance(
+                item,
+                dict,
+            ):
+
+                continue
+
+            raw_id = item.get(
+                "id"
+            )
+
+            fingerprint = (
+
+                f"id:{raw_id}"
+
+                if raw_id
+
+                else
+
+                json.dumps(
+                    item,
+                    sort_keys=True,
+                    ensure_ascii=False,
+                )
+
+            )
+
+            if fingerprint in seen:
+                continue
+
+            seen.add(
+                fingerprint
+            )
+
+            collected.append(
+                item
+            )
+
+    return collected
+
+
+# ============================================================
+# PARSE MINUTE
+# ============================================================
+
+def parse_event_clock(detail):
+
+    clock = detail.get(
+        "clock",
+        {},
+    )
+
+    if not isinstance(
+        clock,
+        dict,
+    ):
+
+        clock = {}
+
+    display_clock = (
+
+        clock.get(
+            "displayValue"
+        )
+
+        or
+
+        ""
+
+    )
+
+    clock_value = clock.get(
+        "value"
+    )
+
+    minute = None
+
+    if isinstance(
+        clock_value,
+        (
+            int,
+            float,
+        ),
+    ):
+
+        minute = int(
+            clock_value // 60
+        )
+
+    else:
+
+        digits = ""
+
+        for char in display_clock:
+
+            if char.isdigit():
+
+                digits += char
+
+            else:
+
+                break
+
+        if digits:
+
+            try:
+
+                minute = int(
+                    digits
+                )
+
+            except ValueError:
+
+                minute = None
+
+    extra_time = None
+
+    if "+" in display_clock:
+
+        try:
+
+            part = (
+                display_clock
+                .split("+", 1)[1]
+                .replace(
+                    "'",
+                    "",
+                )
+                .strip()
+            )
+
+            extra_time = int(
+                part
+            )
+
+        except (
+            ValueError,
+            IndexError,
+        ):
+
+            extra_time = None
+
+    return minute, extra_time
 
 
 # ============================================================
@@ -1197,244 +1324,85 @@ def prepare_match_events(
 
     match_db_id,
 
-    league_slug
+    league_slug,
 
 ):
 
-    try:
+    summary = get_match_summary(
 
-        summary = get_match_summary(
+        event["id"],
 
-            event["id"],
-
-            league_slug
-
-        )
-
-    except Exception as error:
-
-        print(
-
-            f"WARNING: Could not fetch "
-            f"summary for "
-            f"{event.get('name')} "
-            f"(ESPN {event.get('id')}): "
-            f"{error}"
-
-        )
-
-        return []
-
-
-    # --------------------------------------------------------
-    # ESPN KEY EVENTS
-    # --------------------------------------------------------
-
-    details = (
-
-        summary.get(
-            "keyEvents"
-        )
-
-        or
-
-        summary.get(
-            "details"
-        )
-
-        or
-
-        []
+        league_slug,
 
     )
 
+    details = get_all_match_events(
+        summary
+    )
 
     records = []
-
 
     for index, detail in enumerate(
         details
     ):
 
-        event_type = (
-            get_event_type(
+        event_type = get_event_type(
+            detail
+        )
+
+        minute, extra_time = (
+            parse_event_clock(
                 detail
             )
         )
 
-
-        # ----------------------------------------------------
-        # CLOCK
-        # ----------------------------------------------------
-
-        clock = (
-
-            detail.get(
-                "clock",
-                {}
-            )
-
-            or
-
-            {}
-
+        team = detail.get(
+            "team",
+            {},
         )
 
-
-        display_clock = (
-            clock.get(
-                "displayValue",
-                ""
-            )
-        )
-
-
-        clock_value = clock.get(
-            "value"
-        )
-
-
-        minute = None
-
-
-        if isinstance(
-
-            clock_value,
-
-            (
-                int,
-                float
-            )
-
+        if not isinstance(
+            team,
+            dict,
         ):
 
-            minute = int(
-                clock_value // 60
-            )
+            team = {}
 
+        team_source_id = team.get(
+            "id"
+        )
 
-        # ----------------------------------------------------
-        # EXTRA TIME
-        # ----------------------------------------------------
+        athletes = detail.get(
+            "athletesInvolved",
+            [],
+        )
 
-        extra_time = None
-
-
-        if (
-
-            display_clock
-
-            and
-
-            "+"
-
-            in
-
-            display_clock
-
+        if not isinstance(
+            athletes,
+            list,
         ):
 
-            try:
-
-                extra_part = (
-                    display_clock
-                    .split(
-                        "+"
-                    )[1]
-                    .replace(
-                        "'",
-                        ""
-                    )
-                )
-
-
-                extra_time = int(
-                    extra_part
-                )
-
-            except (
-                ValueError,
-                IndexError
-            ):
-
-                extra_time = None
-
-
-        # ----------------------------------------------------
-        # TEAM
-        # ----------------------------------------------------
-
-        team = (
-
-            detail.get(
-                "team",
-                {}
-            )
-
-            or
-
-            {}
-
-        )
-
-
-        team_source_id = (
-            team.get(
-                "id"
-            )
-        )
-
-
-        # ----------------------------------------------------
-        # PLAYERS
-        # ----------------------------------------------------
-
-        athletes = (
-
-            detail.get(
-                "athletesInvolved"
-            )
-
-            or
-
-            []
-
-        )
-
+            athletes = []
 
         player = (
-
             athletes[0]
-
-            if len(
-                athletes
-            ) >= 1
-
-            else
-
-            {}
-
+            if len(athletes) >= 1
+            and isinstance(
+                athletes[0],
+                dict,
+            )
+            else {}
         )
-
 
         assist = (
-
             athletes[1]
-
-            if len(
-                athletes
-            ) >= 2
-
-            else
-
-            {}
-
+            if len(athletes) >= 2
+            and isinstance(
+                athletes[1],
+                dict,
+            )
+            else {}
         )
-
-
-        # ----------------------------------------------------
-        # EVENT KEY
-        # ----------------------------------------------------
 
         event_key = make_event_key(
 
@@ -1442,14 +1410,42 @@ def prepare_match_events(
 
             detail,
 
-            index
+            index,
 
         )
 
+        type_data = detail.get(
+            "type",
+            {},
+        )
 
-        # ----------------------------------------------------
-        # RECORD
-        # ----------------------------------------------------
+        if not isinstance(
+            type_data,
+            dict,
+        ):
+
+            type_data = {}
+
+        card = None
+
+        if event_type in (
+            "yellow_card",
+            "red_card",
+        ):
+
+            card = (
+
+                type_data.get(
+                    "text"
+                )
+
+                or
+
+                type_data.get(
+                    "name"
+                )
+
+            )
 
         record = {
 
@@ -1476,22 +1472,14 @@ def prepare_match_events(
                     str(
                         team_source_id
                     )
-
                     if team_source_id
                     is not None
-
                     else None
                 ),
 
             "team_name":
-                (
-                    team.get(
-                        "displayName"
-                    )
-                    or
-                    team.get(
-                        "name"
-                    )
+                get_team_name(
+                    team
                 ),
 
             "player_id":
@@ -1501,11 +1489,9 @@ def prepare_match_events(
                             "id"
                         )
                     )
-
                     if player.get(
                         "id"
                     ) is not None
-
                     else None
                 ),
 
@@ -1521,11 +1507,9 @@ def prepare_match_events(
                             "id"
                         )
                     )
-
                     if assist.get(
                         "id"
                     ) is not None
-
                     else None
                 ),
 
@@ -1547,23 +1531,7 @@ def prepare_match_events(
                 None,
 
             "card":
-                (
-                    detail
-                    .get(
-                        "type",
-                        {}
-                    )
-                    .get(
-                        "text"
-                    )
-
-                    if event_type in [
-                        "yellow_card",
-                        "red_card"
-                    ]
-
-                    else None
-                ),
+                card,
 
             "home_score":
                 detail.get(
@@ -1575,11 +1543,12 @@ def prepare_match_events(
                     "awayScore"
                 ),
 
+            # IMPORTANT:
+            # Keep the complete ESPN event.
             "raw_event":
                 detail,
 
         }
-
 
         # ----------------------------------------------------
         # SUBSTITUTION
@@ -1587,74 +1556,56 @@ def prepare_match_events(
 
         if event_type == "substitution":
 
-            if len(
-                athletes
-            ) >= 2:
+            if len(athletes) >= 2:
 
-                record[
-                    "player_out_id"
-                ] = (
+                player_out = athletes[0]
+                player_in = athletes[1]
 
-                    str(
-                        athletes[0].get(
-                            "id"
-                        )
-                    )
+                if isinstance(
+                    player_out,
+                    dict,
+                ):
 
-                    if athletes[0].get(
+                    if player_out.get(
                         "id"
-                    ) is not None
+                    ) is not None:
 
-                    else None
+                        record[
+                            "player_out_id"
+                        ] = str(
+                            player_out["id"]
+                        )
 
-                )
-
-
-                record[
-                    "player_out_name"
-                ] = (
-
-                    athletes[0].get(
+                    record[
+                        "player_out_name"
+                    ] = player_out.get(
                         "displayName"
                     )
 
-                )
+                if isinstance(
+                    player_in,
+                    dict,
+                ):
 
-
-                record[
-                    "player_in_id"
-                ] = (
-
-                    str(
-                        athletes[1].get(
-                            "id"
-                        )
-                    )
-
-                    if athletes[1].get(
+                    if player_in.get(
                         "id"
-                    ) is not None
+                    ) is not None:
 
-                    else None
+                        record[
+                            "player_in_id"
+                        ] = str(
+                            player_in["id"]
+                        )
 
-                )
-
-
-                record[
-                    "player_in_name"
-                ] = (
-
-                    athletes[1].get(
+                    record[
+                        "player_in_name"
+                    ] = player_in.get(
                         "displayName"
                     )
-
-                )
-
 
         records.append(
             record
         )
-
 
     return records
 
@@ -1663,13 +1614,34 @@ def prepare_match_events(
 # UPSERT MATCH EVENTS
 # ============================================================
 
-def upsert_match_events(
-    records
-):
+def upsert_match_events(records):
 
     if not records:
+
         return 0
 
+    # --------------------------------------------------------
+    # Remove duplicates inside current batch
+    # --------------------------------------------------------
+
+    unique = {}
+
+    for record in records:
+
+        key = (
+            record[
+                "source"
+            ],
+            record[
+                "source_event_key"
+            ],
+        )
+
+        unique[key] = record
+
+    records = list(
+        unique.values()
+    )
 
     supabase_request(
 
@@ -1680,57 +1652,15 @@ def upsert_match_events(
         {
 
             "on_conflict":
-                "source,source_event_key"
+                "source,source_event_key",
 
         },
 
-        records
+        records,
 
     )
-
 
     return len(records)
-
-
-# ============================================================
-# PROCESS ONE MATCH
-# ============================================================
-
-def process_match_events(
-
-    event,
-
-    match_db_id,
-
-    league_slug
-
-):
-
-    records = prepare_match_events(
-
-        event,
-
-        match_db_id,
-
-        league_slug
-
-    )
-
-
-    saved = upsert_match_events(
-        records
-    )
-
-
-    print(
-
-        f"{event.get('name')} "
-        f": {saved} events"
-
-    )
-
-
-    return saved
 
 
 # ============================================================
@@ -1749,13 +1679,11 @@ def main():
             "SUPABASE_URL is missing."
         )
 
-
     if not SUPABASE_KEY:
 
         raise Exception(
             "SUPABASE_KEY is missing."
         )
-
 
     # ========================================================
     # DATES
@@ -1765,37 +1693,24 @@ def main():
         get_target_dates()
     )
 
-
     target_dates = {
-
         yesterday,
-        today
-
+        today,
     }
 
-
-    # ========================================================
-    # SEASON
-    # ========================================================
-
     season = get_current_season()
-
 
     # ========================================================
     # HEADER
     # ========================================================
 
-    print(
-        "=" * 70
-    )
+    print("=" * 70)
 
     print(
-        "ESPN FIXTURES + MATCH EVENTS"
+        "ESPN FIXTURES + ALL MATCH EVENTS"
     )
 
-    print(
-        "=" * 70
-    )
+    print("=" * 70)
 
     print(
         f"Yesterday : {yesterday}"
@@ -1818,23 +1733,21 @@ def main():
     )
 
     print(
-        "=" * 70
+        "Events    : ALL AVAILABLE ESPN EVENTS"
     )
 
+    print("=" * 70)
 
     # ========================================================
     # COUNTERS
     # ========================================================
 
     total_teams = 0
-
     total_matches = 0
-
     total_events = 0
 
-
     # ========================================================
-    # FIVE LEAGUES
+    # LEAGUES
     # ========================================================
 
     for league_name, league in (
@@ -1842,19 +1755,9 @@ def main():
     ):
 
         print("")
-
-        print(
-            "=" * 70
-        )
-
-        print(
-            league_name
-        )
-
-        print(
-            "=" * 70
-        )
-
+        print("=" * 70)
+        print(league_name)
+        print("=" * 70)
 
         try:
 
@@ -1868,13 +1771,11 @@ def main():
                 )
             )
 
-
             # =================================================
-            # GET SCOREBOARDS
+            # SCOREBOARDS
             # =================================================
 
             all_events = []
-
 
             for target_date in sorted(
                 target_dates
@@ -1885,39 +1786,30 @@ def main():
 
                         league["slug"],
 
-                        target_date
+                        target_date,
 
                     )
                 )
 
-
-                day_events = (
-                    data.get(
-                        "events",
-                        []
-                    )
+                day_events = data.get(
+                    "events",
+                    [],
                 )
-
 
                 print(
-
                     f"{target_date}: "
                     f"{len(day_events)} matches"
-
                 )
-
 
                 all_events.extend(
                     day_events
                 )
 
-
             # =================================================
-            # REMOVE DUPLICATE MATCHES
+            # UNIQUE MATCHES
             # =================================================
 
             unique_events = {}
-
 
             for event in all_events:
 
@@ -1925,51 +1817,57 @@ def main():
                     "id"
                 )
 
-
                 if event_id:
 
                     unique_events[
                         str(event_id)
                     ] = event
 
-
             events = list(
                 unique_events.values()
             )
 
+            if not events:
+
+                print(
+                    "Teams processed: 0"
+                )
+
+                print(
+                    "Matches upserted: 0"
+                )
+
+                print(
+                    "Events processed: 0"
+                )
+
+                continue
 
             # =================================================
             # TEAMS
             # =================================================
 
-            team_db_ids = (
-                upsert_teams(
-                    events
-                )
+            team_db_ids = upsert_teams(
+                events
             )
 
-
-            total_teams += len(
+            team_count = len(
                 team_db_ids
             )
 
+            total_teams += team_count
 
             print(
-
                 "Teams processed: "
-                f"{len(team_db_ids)}"
-
+                f"{team_count}"
             )
-
 
             # =================================================
             # PREPARE MATCHES
             # =================================================
 
             match_records = []
-
             selected_events = []
-
 
             for event in events:
 
@@ -1977,29 +1875,26 @@ def main():
                     "date"
                 )
 
-
                 if not event_date:
                     continue
-
 
                 match_date = (
 
                     parse_datetime(
                         event_date
                     )
-
                     .astimezone(
                         TIMEZONE
                     )
-
                     .date()
 
                 )
 
+                if match_date not in (
+                    target_dates
+                ):
 
-                if match_date not in target_dates:
                     continue
-
 
                 record = prepare_match(
 
@@ -2011,54 +1906,53 @@ def main():
 
                     season,
 
-                    team_db_ids
+                    team_db_ids,
 
                 )
-
 
                 match_records.append(
                     record
                 )
 
-
                 selected_events.append(
                     event
                 )
-
 
             # =================================================
             # UPSERT MATCHES
             # =================================================
 
-            saved_matches = (
-                upsert_matches(
-                    match_records
-                )
+            upsert_matches(
+                match_records
             )
 
-
-            total_matches += (
-                saved_matches
+            match_count = len(
+                match_records
             )
 
+            total_matches += match_count
 
             print(
-
                 "Matches upserted: "
-                f"{saved_matches}"
-
+                f"{match_count}"
             )
 
+            if not match_records:
+
+                print(
+                    "Events processed: 0"
+                )
+
+                continue
 
             # =================================================
-            # GET INTERNAL MATCH IDS
+            # GET MATCH DB IDS
             # =================================================
 
             match_db_ids = (
                 get_match_db_ids(
 
                     [
-
                         record[
                             "source_match_id"
                         ]
@@ -2071,13 +1965,11 @@ def main():
                 )
             )
 
-
             # =================================================
-            # MATCH EVENTS
+            # EVENTS
             # =================================================
 
             league_event_count = 0
-
 
             for event in selected_events:
 
@@ -2085,121 +1977,93 @@ def main():
                     event["id"]
                 )
 
-
                 match_db_id = (
                     match_db_ids.get(
                         source_match_id
                     )
                 )
 
-
                 if match_db_id is None:
 
-                    print(
+                    raise Exception(
 
-                        "WARNING: Missing "
+                        "Could not find "
                         "Supabase match ID "
                         f"for ESPN event "
                         f"{source_match_id}"
 
                     )
 
-                    continue
-
-
-                saved_events = (
-                    process_match_events(
+                event_records = (
+                    prepare_match_events(
 
                         event,
 
                         match_db_id,
 
-                        league["slug"]
+                        league["slug"],
 
                     )
                 )
 
+                saved_events = (
+                    upsert_match_events(
+                        event_records
+                    )
+                )
 
                 league_event_count += (
                     saved_events
                 )
 
-
                 total_events += (
                     saved_events
                 )
 
+                print(
+                    f"{event.get('name')} "
+                    f": {saved_events} events"
+                )
 
             print(
-
                 "Events processed: "
                 f"{league_event_count}"
-
             )
-
 
         except Exception as error:
 
             print("")
-
             print(
-
-                f"ERROR in "
-                f"{league_name}:"
-
+                f"ERROR in {league_name}:"
             )
-
-            print(
-                error
-            )
-
+            print(error)
             print(
                 "Continuing with next league..."
             )
-
 
     # ========================================================
     # FINAL SUMMARY
     # ========================================================
 
     print("")
+    print("=" * 70)
+    print("FINAL SUMMARY")
+    print("=" * 70)
 
     print(
-        "=" * 70
-    )
-
-    print(
-        "FINAL SUMMARY"
-    )
-
-    print(
-        "=" * 70
-    )
-
-
-    print(
-
         "Teams processed   : "
         f"{total_teams}"
-
     )
 
-
     print(
-
         "Matches processed : "
         f"{total_matches}"
-
     )
-
 
     print(
-
         "Events processed  : "
         f"{total_events}"
-
     )
-
 
     print(
         "Source            : ESPN"
@@ -2214,7 +2078,11 @@ def main():
     )
 
     print(
-        "Match Events      : ENABLED"
+        "Match Events      : ALL AVAILABLE"
+    )
+
+    print(
+        "Raw ESPN Event    : SAVED"
     )
 
     print(
@@ -2225,10 +2093,7 @@ def main():
         "Status            : SUCCESS"
     )
 
-
-    print(
-        "=" * 70
-    )
+    print("=" * 70)
 
 
 # ============================================================
