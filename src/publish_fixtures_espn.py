@@ -7,7 +7,7 @@ from zoneinfo import ZoneInfo
 
 
 # ============================================================
-# CONFIG
+# CONFIGURATION
 # ============================================================
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
@@ -32,6 +32,47 @@ CHANNEL = "telegram"
 
 
 # ============================================================
+# EVENTS ALLOWED FOR PUBLISHING
+# ============================================================
+
+PUBLISHABLE_EVENTS = {
+
+    "goal",
+    "yellow_card",
+    "red_card",
+    "substitution",
+    "var",
+    "penalty",
+
+    "kickoff",
+    "start_2nd_half",
+    "halftime",
+    "fulltime",
+
+}
+
+
+# ============================================================
+# EVENTS THAT MUST NEVER BE PUBLISHED
+# ============================================================
+
+IGNORED_EVENTS = {
+
+    "other",
+
+    "delay",
+    "start_delay",
+    "end_delay",
+    "game_delay",
+    "weather_delay",
+
+    "review",
+    "official_review",
+
+}
+
+
+# ============================================================
 # LOGGING
 # ============================================================
 
@@ -50,7 +91,7 @@ def log(message):
 
 
 # ============================================================
-# ENVIRONMENT
+# ENVIRONMENT VALIDATION
 # ============================================================
 
 def validate_environment():
@@ -93,7 +134,7 @@ def validate_environment():
 
 
 # ============================================================
-# RETRY
+# RETRY / EXPONENTIAL BACKOFF
 # ============================================================
 
 def retry_call(
@@ -117,6 +158,7 @@ def retry_call(
             last_error = error
 
             if attempt >= MAX_RETRIES:
+
                 break
 
             delay = (
@@ -124,15 +166,13 @@ def retry_call(
             )
 
             log(
-
                 f"{label} failed "
                 f"({attempt}/{MAX_RETRIES}): "
                 f"{error}"
-
             )
 
             log(
-                f"Retrying in {delay}s"
+                f"Retrying in {delay}s..."
             )
 
             time.sleep(
@@ -202,17 +242,21 @@ def supabase_request(
         )
 
         if response.status_code in {
+
             200,
             201,
             204,
+
         }:
 
             if not response.content:
+
                 return []
 
             return response.json()
 
         if response.status_code in {
+
             408,
             409,
             429,
@@ -220,12 +264,13 @@ def supabase_request(
             502,
             503,
             504,
+
         }:
 
             raise RuntimeError(
 
-                f"Supabase transient "
-                f"HTTP {response.status_code}"
+                f"Supabase transient HTTP "
+                f"{response.status_code}"
 
             )
 
@@ -241,7 +286,7 @@ def supabase_request(
 
         request,
 
-        f"Supabase {method} {table}"
+        f"Supabase {method} {table}",
 
     )
 
@@ -258,8 +303,12 @@ def telegram_request(
     url = (
 
         "https://api.telegram.org/bot"
-        f"{TELEGRAM_BOT_TOKEN}/"
-        f"{method}"
+
+        + TELEGRAM_BOT_TOKEN
+
+        + "/"
+
+        + method
 
     )
 
@@ -291,6 +340,7 @@ def telegram_request(
             return data
 
         if response.status_code in {
+
             408,
             409,
             429,
@@ -298,12 +348,13 @@ def telegram_request(
             502,
             503,
             504,
+
         }:
 
             raise RuntimeError(
 
-                f"Telegram transient "
-                f"HTTP {response.status_code}"
+                f"Telegram transient HTTP "
+                f"{response.status_code}"
 
             )
 
@@ -319,42 +370,692 @@ def telegram_request(
 
         request,
 
-        f"Telegram {method}"
+        f"Telegram {method}",
 
     )
 
 
 # ============================================================
-# FETCH UNPUBLISHED EVENTS
+# HELPERS
+# ============================================================
+
+def format_minute(
+    minute,
+    extra_time,
+):
+
+    if minute is None:
+
+        return ""
+
+    if extra_time:
+
+        return (
+            f"{minute}+"
+            f"{extra_time}'"
+        )
+
+    return f"{minute}'"
+
+
+def get_raw_event(
+    event,
+):
+
+    raw = event.get(
+        "raw_event"
+    )
+
+    if isinstance(
+        raw,
+        dict
+    ):
+
+        return raw
+
+    return {}
+
+
+# ============================================================
+# MATCH SCORE
+# ============================================================
+
+def get_score(
+    event,
+    match,
+):
+
+    home_score = (
+        event.get(
+            "home_score"
+        )
+    )
+
+    away_score = (
+        event.get(
+            "away_score"
+        )
+    )
+
+    if home_score is None:
+
+        home_score = match.get(
+            "home_score"
+        )
+
+    if away_score is None:
+
+        away_score = match.get(
+            "away_score"
+        )
+
+    if (
+        home_score is None
+        or
+        away_score is None
+    ):
+
+        return None
+
+    return (
+        home_score,
+        away_score
+    )
+
+
+def score_line(
+    event,
+    match,
+):
+
+    score = get_score(
+        event,
+        match
+    )
+
+    if not score:
+
+        return ""
+
+    home = (
+        match.get(
+            "home_team_name"
+        )
+        or
+        "الفريق الأول"
+    )
+
+    away = (
+        match.get(
+            "away_team_name"
+        )
+        or
+        "الفريق الثاني"
+    )
+
+    home_score, away_score = score
+
+    return (
+        f"📊 {home} "
+        f"{home_score} - "
+        f"{away_score} {away}"
+    )
+
+
+# ============================================================
+# SUBSTITUTION PLAYERS
+# ============================================================
+
+def get_substitution_players(
+    event,
+):
+
+    player_out = (
+        event.get(
+            "player_out_name"
+        )
+        or ""
+    )
+
+    player_in = (
+        event.get(
+            "player_in_name"
+        )
+        or ""
+    )
+
+    if player_out or player_in:
+
+        return (
+            player_out,
+            player_in
+        )
+
+    raw = get_raw_event(
+        event
+    )
+
+    # --------------------------------------------------------
+    # Explicit ESPN fields
+    # --------------------------------------------------------
+
+    out_value = (
+
+        raw.get(
+            "playerOut"
+        )
+
+        or
+
+        raw.get(
+            "athleteOut"
+        )
+
+        or
+
+        raw.get(
+            "substitutionOut"
+        )
+
+    )
+
+    in_value = (
+
+        raw.get(
+            "playerIn"
+        )
+
+        or
+
+        raw.get(
+            "athleteIn"
+        )
+
+        or
+
+        raw.get(
+            "substitutionIn"
+        )
+
+    )
+
+    def name(value):
+
+        if not isinstance(
+            value,
+            dict
+        ):
+
+            return str(
+                value or ""
+            )
+
+        return (
+
+            value.get(
+                "displayName"
+            )
+
+            or
+
+            value.get(
+                "fullName"
+            )
+
+            or
+
+            value.get(
+                "shortName"
+            )
+
+            or
+
+            value.get(
+                "name"
+            )
+
+            or ""
+
+        )
+
+    player_out = name(
+        out_value
+    )
+
+    player_in = name(
+        in_value
+    )
+
+    if player_out or player_in:
+
+        return (
+            player_out,
+            player_in
+        )
+
+    # --------------------------------------------------------
+    # athletesInvolved fallback
+    # --------------------------------------------------------
+
+    athletes = (
+
+        raw.get(
+            "athletesInvolved"
+        )
+        or []
+
+    )
+
+    if len(athletes) >= 2:
+
+        return (
+
+            name(
+                athletes[0]
+            ),
+
+            name(
+                athletes[1]
+            ),
+
+        )
+
+    return (
+        "",
+        ""
+    )
+
+
+# ============================================================
+# MESSAGE GENERATOR
+# ============================================================
+
+def build_event_message(
+    event,
+    match,
+):
+
+    event_type = event.get(
+        "event_type"
+    )
+
+    team = (
+        event.get(
+            "team_name"
+        )
+        or ""
+    )
+
+    player = (
+        event.get(
+            "player_name"
+        )
+        or ""
+    )
+
+    assist = (
+        event.get(
+            "assist_player_name"
+        )
+        or ""
+    )
+
+    minute = format_minute(
+
+        event.get(
+            "minute"
+        ),
+
+        event.get(
+            "extra_time"
+        ),
+
+    )
+
+    home = (
+        match.get(
+            "home_team_name"
+        )
+        or
+        "الفريق الأول"
+    )
+
+    away = (
+        match.get(
+            "away_team_name"
+        )
+        or
+        "الفريق الثاني"
+    )
+
+    # ========================================================
+    # GOAL
+    # ========================================================
+
+    if event_type == "goal":
+
+        lines = [
+            "⚽ هدف!",
+        ]
+
+        if team:
+
+            lines.append(
+                f"🏟️ {team}"
+            )
+
+        if player:
+
+            lines.append(
+                f"👤 {player}"
+            )
+
+        if assist:
+
+            lines.append(
+                f"🎯 أسيست: {assist}"
+            )
+
+        score = score_line(
+            event,
+            match
+        )
+
+        if score:
+
+            lines.append(
+                score
+            )
+
+        if minute:
+
+            lines.append(
+                f"⏱️ {minute}"
+            )
+
+        return "\n".join(
+            lines
+        )
+
+    # ========================================================
+    # YELLOW CARD
+    # ========================================================
+
+    if event_type == "yellow_card":
+
+        lines = [
+            "🟨 بطاقة صفراء"
+        ]
+
+        if team:
+
+            lines.append(
+                f"🏟️ {team}"
+            )
+
+        if player:
+
+            lines.append(
+                f"👤 {player}"
+            )
+
+        if minute:
+
+            lines.append(
+                f"⏱️ {minute}"
+            )
+
+        return "\n".join(
+            lines
+        )
+
+    # ========================================================
+    # RED CARD
+    # ========================================================
+
+    if event_type == "red_card":
+
+        lines = [
+            "🟥 بطاقة حمراء"
+        ]
+
+        if team:
+
+            lines.append(
+                f"🏟️ {team}"
+            )
+
+        if player:
+
+            lines.append(
+                f"👤 {player}"
+            )
+
+        if minute:
+
+            lines.append(
+                f"⏱️ {minute}"
+            )
+
+        return "\n".join(
+            lines
+        )
+
+    # ========================================================
+    # SUBSTITUTION
+    # ========================================================
+
+    if event_type == "substitution":
+
+        player_out, player_in = (
+            get_substitution_players(
+                event
+            )
+        )
+
+        lines = [
+            "🔄 تبديل"
+        ]
+
+        if team:
+
+            lines.append(
+                f"🏟️ {team}"
+            )
+
+        if player_out:
+
+            lines.append(
+                f"⬅️ خروج: {player_out}"
+            )
+
+        if player_in:
+
+            lines.append(
+                f"➡️ دخول: {player_in}"
+            )
+
+        if minute:
+
+            lines.append(
+                f"⏱️ {minute}"
+            )
+
+        return "\n".join(
+            lines
+        )
+
+    # ========================================================
+    # VAR
+    # ========================================================
+
+    if event_type == "var":
+
+        lines = [
+            "📺 مراجعة تقنية الفيديو"
+        ]
+
+        if team:
+
+            lines.append(
+                f"🏟️ {team}"
+            )
+
+        if player:
+
+            lines.append(
+                f"👤 {player}"
+            )
+
+        if minute:
+
+            lines.append(
+                f"⏱️ {minute}"
+            )
+
+        return "\n".join(
+            lines
+        )
+
+    # ========================================================
+    # PENALTY
+    # ========================================================
+
+    if event_type == "penalty":
+
+        lines = [
+            "⚽ ركلة جزاء"
+        ]
+
+        if team:
+
+            lines.append(
+                f"🏟️ {team}"
+            )
+
+        if player:
+
+            lines.append(
+                f"👤 {player}"
+            )
+
+        if minute:
+
+            lines.append(
+                f"⏱️ {minute}"
+            )
+
+        return "\n".join(
+            lines
+        )
+
+    # ========================================================
+    # KICKOFF
+    # ========================================================
+
+    if event_type == "kickoff":
+
+        return (
+            "🟢 بداية المباراة\n"
+            f"{home} × {away}"
+        )
+
+    # ========================================================
+    # SECOND HALF
+    # ========================================================
+
+    if event_type == "start_2nd_half":
+
+        return (
+            "▶️ بداية الشوط الثاني\n"
+            f"{home} × {away}"
+        )
+
+    # ========================================================
+    # HALF TIME
+    # ========================================================
+
+    if event_type == "halftime":
+
+        score = score_line(
+            event,
+            match
+        )
+
+        lines = [
+            "⏸️ نهاية الشوط الأول"
+        ]
+
+        if score:
+
+            lines.append(
+                score
+            )
+
+        return "\n".join(
+            lines
+        )
+
+    # ========================================================
+    # FULL TIME
+    # ========================================================
+
+    if event_type == "fulltime":
+
+        score = score_line(
+            event,
+            match
+        )
+
+        lines = [
+            "🏁 نهاية المباراة"
+        ]
+
+        if score:
+
+            lines.append(
+                score
+            )
+
+        return "\n".join(
+            lines
+        )
+
+    return ""
+
+
+# ============================================================
+# GET UNPUBLISHED EVENTS
 # ============================================================
 
 def get_unpublished_events():
 
     params = {
 
-        "select": (
-            "id,"
-            "match_id,"
-            "source,"
-            "source_event_key,"
-            "event_type,"
-            "minute,"
-            "extra_time,"
-            "team_id,"
-            "team_name,"
-            "player_id,"
-            "player_name,"
-            "assist_player_id,"
-            "assist_player_name,"
-            "player_out_id,"
-            "player_out_name,"
-            "player_in_id,"
-            "player_in_name,"
-            "card,"
-            "home_score,"
-            "away_score,"
-            "raw_event"
-        ),
+        "select":
+            (
+                "id,"
+                "match_id,"
+                "source,"
+                "source_event_key,"
+                "event_type,"
+                "minute,"
+                "extra_time,"
+                "team_id,"
+                "team_name,"
+                "player_id,"
+                "player_name,"
+                "assist_player_id,"
+                "assist_player_name,"
+                "player_out_id,"
+                "player_out_name,"
+                "player_in_id,"
+                "player_in_name,"
+                "card,"
+                "home_score,"
+                "away_score,"
+                "raw_event"
+            ),
 
         "source":
             "eq.espn",
@@ -373,13 +1074,57 @@ def get_unpublished_events():
 
         "match_events",
 
-        params,
+        params
 
     )
 
     if not events:
 
         return []
+
+    # --------------------------------------------------------
+    # ONLY REAL PUBLISHABLE EVENTS
+    # --------------------------------------------------------
+
+    events = [
+
+        event
+
+        for event in events
+
+        if (
+
+            event.get(
+                "event_type"
+            )
+
+            in
+
+            PUBLISHABLE_EVENTS
+
+        )
+
+        and (
+
+            event.get(
+                "event_type"
+            )
+
+            not in
+
+            IGNORED_EVENTS
+
+        )
+
+    ]
+
+    if not events:
+
+        return []
+
+    # --------------------------------------------------------
+    # CHECK news_events
+    # --------------------------------------------------------
 
     event_ids = [
 
@@ -398,10 +1143,6 @@ def get_unpublished_events():
     if not event_ids:
 
         return []
-
-    # --------------------------------------------------------
-    # Get events already published to this channel.
-    # --------------------------------------------------------
 
     sent_rows = supabase_request(
 
@@ -452,7 +1193,8 @@ def get_unpublished_events():
 
         if str(
             event["id"]
-        ) not in sent_ids
+        )
+        not in sent_ids
 
     ]
 
@@ -460,7 +1202,7 @@ def get_unpublished_events():
 
 
 # ============================================================
-# MATCH DATA
+# GET MATCHES
 # ============================================================
 
 def get_matches(
@@ -473,7 +1215,9 @@ def get_matches(
 
     ids = ",".join(
 
-        str(value)
+        str(
+            value
+        )
 
         for value in match_ids
 
@@ -487,17 +1231,18 @@ def get_matches(
 
         {
 
-            "select": (
-                "id,"
-                "source_match_id,"
-                "home_team_name,"
-                "away_team_name,"
-                "home_score,"
-                "away_score,"
-                "status,"
-                "kickoff_local,"
-                "competition_name"
-            ),
+            "select":
+                (
+                    "id,"
+                    "source_match_id,"
+                    "home_team_name,"
+                    "away_team_name,"
+                    "home_score,"
+                    "away_score,"
+                    "status,"
+                    "kickoff_local,"
+                    "competition_name"
+                ),
 
             "id":
                 f"in.({ids})",
@@ -516,510 +1261,6 @@ def get_matches(
         for row in rows
 
     }
-
-
-# ============================================================
-# FORMAT MINUTE
-# ============================================================
-
-def format_minute(
-    minute,
-    extra_time,
-):
-
-    if minute is None:
-
-        return ""
-
-    if extra_time:
-
-        return (
-            f"{minute}+"
-            f"{extra_time}'"
-        )
-
-    return (
-        f"{minute}'"
-    )
-
-
-# ============================================================
-# EVENT EMOJI
-# ============================================================
-
-def event_prefix(
-    event_type,
-):
-
-    prefixes = {
-
-        "goal":
-            "⚽",
-
-        "yellow_card":
-            "🟨",
-
-        "red_card":
-            "🟥",
-
-        "substitution":
-            "🔄",
-
-        "var":
-            "📺",
-
-        "penalty":
-            "⚽",
-
-        "kickoff":
-            "🟢",
-
-        "start_2nd_half":
-            "▶️",
-
-        "halftime":
-            "⏸️",
-
-        "fulltime":
-            "🔴",
-
-    }
-
-    return prefixes.get(
-        event_type,
-        "📢"
-    )
-
-
-# ============================================================
-# MESSAGE GENERATION
-# ============================================================
-
-def build_event_message(
-    event,
-    match,
-):
-
-    event_type = event.get(
-        "event_type"
-    )
-
-    home = (
-        match.get(
-            "home_team_name"
-        )
-        or
-        "الفريق الأول"
-    )
-
-    away = (
-        match.get(
-            "away_team_name"
-        )
-        or
-        "الفريق الثاني"
-    )
-
-    competition = (
-        match.get(
-            "competition_name"
-        )
-        or
-        ""
-    )
-
-    minute = format_minute(
-
-        event.get(
-            "minute"
-        ),
-
-        event.get(
-            "extra_time"
-        ),
-
-    )
-
-    player = (
-        event.get(
-            "player_name"
-        )
-        or
-        ""
-    )
-
-    assist = (
-        event.get(
-            "assist_player_name"
-        )
-        or
-        ""
-    )
-
-    team = (
-        event.get(
-            "team_name"
-        )
-        or
-        ""
-    )
-
-    home_score = event.get(
-        "home_score"
-    )
-
-    away_score = event.get(
-        "away_score"
-    )
-
-    # --------------------------------------------------------
-    # GOAL
-    # --------------------------------------------------------
-
-    if event_type == "goal":
-
-        text = (
-            f"⚽ هدف!"
-            f"\n{team}"
-        )
-
-        if player:
-
-            text += (
-                f"\n👤 {player}"
-            )
-
-        if assist:
-
-            text += (
-                f"\n🎯 أسيست: {assist}"
-            )
-
-        if (
-            home_score is not None
-            and
-            away_score is not None
-        ):
-
-            text += (
-
-                f"\n📊 "
-                f"{home} "
-                f"{home_score} - "
-                f"{away_score} "
-                f"{away}"
-
-            )
-
-        if minute:
-
-            text += (
-                f"\n⏱️ {minute}"
-            )
-
-        return text
-
-    # --------------------------------------------------------
-    # YELLOW CARD
-    # --------------------------------------------------------
-
-    if event_type == "yellow_card":
-
-        text = (
-            f"🟨 بطاقة صفراء"
-            f"\n{team}"
-        )
-
-        if player:
-
-            text += (
-                f"\n👤 {player}"
-            )
-
-        if minute:
-
-            text += (
-                f"\n⏱️ {minute}"
-            )
-
-        return text
-
-    # --------------------------------------------------------
-    # RED CARD
-    # --------------------------------------------------------
-
-    if event_type == "red_card":
-
-        text = (
-            f"🟥 بطاقة حمراء"
-            f"\n{team}"
-        )
-
-        if player:
-
-            text += (
-                f"\n👤 {player}"
-            )
-
-        if minute:
-
-            text += (
-                f"\n⏱️ {minute}"
-            )
-
-        return text
-
-    # --------------------------------------------------------
-    # SUBSTITUTION
-    # --------------------------------------------------------
-
-    if event_type == "substitution":
-
-        player_out = (
-            event.get(
-                "player_out_name"
-            )
-            or
-            ""
-        )
-
-        player_in = (
-            event.get(
-                "player_in_name"
-            )
-            or
-            ""
-        )
-
-        text = (
-            f"🔄 تبديل"
-            f"\n{team}"
-        )
-
-        if player_out:
-
-            text += (
-                f"\n⬅️ خروج: "
-                f"{player_out}"
-            )
-
-        if player_in:
-
-            text += (
-                f"\n➡️ دخول: "
-                f"{player_in}"
-            )
-
-        if minute:
-
-            text += (
-                f"\n⏱️ {minute}"
-            )
-
-        return text
-
-    # --------------------------------------------------------
-    # VAR
-    # --------------------------------------------------------
-
-    if event_type == "var":
-
-        text = (
-            "📺 مراجعة VAR"
-        )
-
-        if team:
-
-            text += (
-                f"\n{team}"
-            )
-
-        if player:
-
-            text += (
-                f"\n👤 {player}"
-            )
-
-        if minute:
-
-            text += (
-                f"\n⏱️ {minute}"
-            )
-
-        return text
-
-    # --------------------------------------------------------
-    # PENALTY
-    # --------------------------------------------------------
-
-    if event_type == "penalty":
-
-        text = (
-            f"⚽ ركلة جزاء"
-            f"\n{team}"
-        )
-
-        if player:
-
-            text += (
-                f"\n👤 {player}"
-            )
-
-        if minute:
-
-            text += (
-                f"\n⏱️ {minute}"
-            )
-
-        return text
-
-    # --------------------------------------------------------
-    # KICKOFF
-    # --------------------------------------------------------
-
-    if event_type == "kickoff":
-
-        return (
-
-            f"🟢 بداية المباراة"
-
-            f"\n{home} × {away}"
-
-            + (
-                f"\n🏆 {competition}"
-                if competition
-                else ""
-            )
-
-        )
-
-    # --------------------------------------------------------
-    # SECOND HALF
-    # --------------------------------------------------------
-
-    if event_type == "start_2nd_half":
-
-        return (
-            "▶️ بداية الشوط الثاني"
-            f"\n{home} × {away}"
-        )
-
-    # --------------------------------------------------------
-    # HALF TIME
-    # --------------------------------------------------------
-
-    if event_type == "halftime":
-
-        score_text = ""
-
-        if (
-            home_score is not None
-            and
-            away_score is not None
-        ):
-
-            score_text = (
-
-                f"\n📊 "
-                f"{home} "
-                f"{home_score} - "
-                f"{away_score} "
-                f"{away}"
-
-            )
-
-        return (
-            "⏸️ نهاية الشوط الأول"
-            f"{score_text}"
-        )
-
-    # --------------------------------------------------------
-    # FULL TIME
-    # --------------------------------------------------------
-
-    if event_type == "fulltime":
-
-        score_text = ""
-
-        if (
-            home_score is not None
-            and
-            away_score is not None
-        ):
-
-            score_text = (
-
-                f"\n🏁 "
-                f"{home} "
-                f"{home_score} - "
-                f"{away_score} "
-                f"{away}"
-
-            )
-
-        return (
-            "🔴 نهاية المباراة"
-            f"{score_text}"
-        )
-
-    # --------------------------------------------------------
-    # UNKNOWN EVENT
-    # --------------------------------------------------------
-
-    text = (
-        f"{event_prefix(event_type)} "
-        f"{event_type or 'حدث جديد'}"
-    )
-
-    if team:
-
-        text += (
-            f"\n{team}"
-        )
-
-    if player:
-
-        text += (
-            f"\n👤 {player}"
-        )
-
-    if minute:
-
-        text += (
-            f"\n⏱️ {minute}"
-        )
-
-    return text
-
-
-# ============================================================
-# SEND TELEGRAM
-# ============================================================
-
-def send_telegram_message(
-    text,
-):
-
-    payload = {
-
-        "chat_id":
-            TELEGRAM_CHAT_ID,
-
-        "text":
-            text,
-
-        "disable_web_page_preview":
-            True,
-
-    }
-
-    return telegram_request(
-
-        "sendMessage",
-
-        payload,
-
-    )
 
 
 # ============================================================
@@ -1055,6 +1296,11 @@ def log_sent_event(
 
     }
 
+    # --------------------------------------------------------
+    # The database UNIQUE constraint is the final protection
+    # against duplicate publishing records.
+    # --------------------------------------------------------
+
     try:
 
         supabase_request(
@@ -1074,28 +1320,21 @@ def log_sent_event(
 
     except Exception as error:
 
-        # IMPORTANT:
-        #
-        # Telegram was already sent.
-        #
-        # We must not blindly resend the message,
-        # otherwise a Supabase error could create
-        # duplicate Telegram posts.
-        #
-        # Therefore we raise an explicit error and
-        # let the workflow report it.
+        # Message was already sent successfully.
+        # Do not resend it because logging failed.
 
-        raise RuntimeError(
-
-            "Telegram message was sent "
-            "but logging in news_events failed: "
+        log(
+            f"WARNING: Telegram sent "
+            f"but news_events logging "
+            f"failed for event={event_id}: "
             f"{error}"
-
         )
+
+        raise
 
 
 # ============================================================
-# PROCESS EVENT
+# PROCESS ONE EVENT
 # ============================================================
 
 def process_event(
@@ -1111,13 +1350,41 @@ def process_event(
         "event_type"
     )
 
-    log(
+    # --------------------------------------------------------
+    # SAFETY FILTER
+    # --------------------------------------------------------
 
-        f"Publishing event "
-        f"id={event_id} "
-        f"type={event_type}"
+    if event_type not in (
+        PUBLISHABLE_EVENTS
+    ):
 
-    )
+        log(
+
+            f"SKIP unsupported event "
+            f"id={event_id} "
+            f"type={event_type}"
+
+        )
+
+        return False
+
+    if event_type in (
+        IGNORED_EVENTS
+    ):
+
+        log(
+
+            f"SKIP ignored event "
+            f"id={event_id} "
+            f"type={event_type}"
+
+        )
+
+        return False
+
+    # --------------------------------------------------------
+    # BUILD MESSAGE
+    # --------------------------------------------------------
 
     message = build_event_message(
 
@@ -1130,18 +1397,44 @@ def process_event(
     if not message.strip():
 
         log(
-            f"Skipping empty message "
-            f"for event {event_id}"
+
+            f"SKIP empty message "
+            f"id={event_id} "
+            f"type={event_type}"
+
         )
 
         return False
 
     # --------------------------------------------------------
-    # SEND
+    # SEND TELEGRAM
     # --------------------------------------------------------
 
-    send_telegram_message(
-        message
+    log(
+
+        f"Publishing event "
+        f"id={event_id} "
+        f"type={event_type}"
+
+    )
+
+    telegram_request(
+
+        "sendMessage",
+
+        {
+
+            "chat_id":
+                TELEGRAM_CHAT_ID,
+
+            "text":
+                message,
+
+            "disable_web_page_preview":
+                True,
+
+        },
+
     )
 
     log(
@@ -1150,7 +1443,7 @@ def process_event(
     )
 
     # --------------------------------------------------------
-    # LOG
+    # LOG AFTER SUCCESSFUL SEND
     # --------------------------------------------------------
 
     log_sent_event(
@@ -1182,32 +1475,25 @@ def main():
     )
 
     log(
-        f"Channel: {CHANNEL}"
+        "Architecture: "
+        "Supabase -> Python -> Telegram"
+    )
+
+    log(
+        "=================================================="
     )
 
     # --------------------------------------------------------
-    # GET EVENTS
+    # GET NEW EVENTS
     # --------------------------------------------------------
 
-    try:
-
-        events = (
-            get_unpublished_events()
-        )
-
-    except Exception as error:
-
-        log(
-            f"ERROR loading events: "
-            f"{error}"
-        )
-
-        raise
+    events = get_unpublished_events()
 
     if not events:
 
         log(
-            "No unpublished events."
+            "No unpublished "
+            "publishable events."
         )
 
         log(
@@ -1217,21 +1503,17 @@ def main():
         return
 
     log(
-
         f"Unpublished events: "
         f"{len(events)}"
-
     )
 
     # --------------------------------------------------------
-    # MATCHES
+    # GET MATCH DATA
     # --------------------------------------------------------
 
-    match_ids = [
+    match_ids = list({
 
-        event[
-            "match_id"
-        ]
+        event["match_id"]
 
         for event in events
 
@@ -1239,14 +1521,10 @@ def main():
             "match_id"
         ) is not None
 
-    ]
+    })
 
     matches = get_matches(
-        list(
-            set(
-                match_ids
-            )
-        )
+        match_ids
     )
 
     # --------------------------------------------------------
@@ -1259,13 +1537,15 @@ def main():
 
     for event in events:
 
-        match_id = event.get(
-            "match_id"
+        event_id = event.get(
+            "id"
         )
 
         match = matches.get(
             str(
-                match_id
+                event.get(
+                    "match_id"
+                )
             )
         )
 
@@ -1273,10 +1553,8 @@ def main():
 
             log(
 
-                f"Skipping event "
-                f"{event.get('id')}: "
-                f"match {match_id} "
-                f"not found"
+                f"SKIP event={event_id}: "
+                "match not found"
 
             )
 
@@ -1286,7 +1564,7 @@ def main():
 
         try:
 
-            success = process_event(
+            result = process_event(
 
                 event,
 
@@ -1294,7 +1572,7 @@ def main():
 
             )
 
-            if success:
+            if result:
 
                 sent += 1
 
@@ -1309,26 +1587,25 @@ def main():
             log(
 
                 f"ERROR publishing "
-                f"event "
-                f"{event.get('id')}: "
+                f"event={event_id}: "
                 f"{error}"
 
             )
 
-            # Continue with next event.
+            # ------------------------------------------------
+            # Continue with other events.
+            # One Telegram/Supabase failure must not stop
+            # the complete publishing cycle.
+            # ------------------------------------------------
 
             continue
 
-    # --------------------------------------------------------
-    # FINAL
-    # --------------------------------------------------------
+    # ========================================================
+    # FINAL LOG
+    # ========================================================
 
     log(
         "=================================================="
-    )
-
-    log(
-        "TELEGRAM EVENT PUBLISHER END"
     )
 
     log(
@@ -1344,14 +1621,16 @@ def main():
     )
 
     log(
+        "TELEGRAM EVENT PUBLISHER END"
+    )
+
+    log(
         "=================================================="
     )
 
     # --------------------------------------------------------
-    # IMPORTANT:
-    #
-    # If anything failed, GitHub Actions should show
-    # the run as failed.
+    # Workflow should report failure if events failed,
+    # so GitHub Actions / cron monitoring can detect it.
     # --------------------------------------------------------
 
     if failed:
@@ -1359,7 +1638,7 @@ def main():
         raise RuntimeError(
 
             f"{failed} event(s) "
-            f"failed to publish"
+            "failed to publish"
 
         )
 
