@@ -50,6 +50,6 @@ jobs:
       - name: سحب مواعيد واحداث المباريات 
         run: python fixtures_espn.py
         env:
-          FOOTBALL_DATA_TOKEN: ${{ secrets.FOOTBALL_DATA_TOKEN }}
+          
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
