@@ -1536,6 +1536,55 @@ def athlete_name(
 
 
 # ============================================================
+# ATHLETES (from ESPN's actual "participants" field)
+# ============================================================
+
+def extract_athletes(
+    detail,
+):
+
+    # --------------------------------------------------------
+    # ESPN's real match-summary payload nests player data as:
+    #   "participants": [{"athlete": {...}}, {"athlete": {...}}]
+    #
+    # "athletesInvolved" is NOT a field ESPN actually returns
+    # for soccer detail events; keeping it only as a defensive
+    # fallback in case the schema changes again.
+    # --------------------------------------------------------
+
+    participants = (
+        detail.get(
+            "participants"
+        )
+        or []
+    )
+
+    if participants:
+
+        return [
+            participant.get(
+                "athlete",
+                {}
+            )
+            or {}
+
+            for participant in participants
+
+            if isinstance(
+                participant,
+                dict
+            )
+        ]
+
+    return (
+        detail.get(
+            "athletesInvolved"
+        )
+        or []
+    )
+
+
+# ============================================================
 # CLOCK
 # ============================================================
 
@@ -1717,11 +1766,8 @@ def prepare_match_events(
             or {}
         )
 
-        athletes = (
-            detail.get(
-                "athletesInvolved"
-            )
-            or []
+        athletes = extract_athletes(
+            detail
         )
 
         player = (
@@ -1778,7 +1824,12 @@ def prepare_match_events(
             if explicit_in:
                 player_in = explicit_in
 
-            # Fallback to athletesInvolved.
+            # Fallback to ESPN's participants order:
+            # participants[0] = player coming IN
+            # participants[1] = player going OUT
+            # (verified against ESPN's own description text,
+            # e.g. "X replaces Y" -> X is participants[0]).
+
             if (
                 not player_out
                 and
@@ -1787,8 +1838,8 @@ def prepare_match_events(
                 len(athletes) >= 2
             ):
 
-                player_out = athletes[0]
-                player_in = athletes[1]
+                player_in = athletes[0]
+                player_out = athletes[1]
 
         def text_id(
             value
