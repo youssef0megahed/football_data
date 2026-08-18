@@ -254,6 +254,8 @@ def get_todays_matches():
                 "competition_name,"
                 "home_team_name,"
                 "away_team_name,"
+                "home_team_db_id,"
+                "away_team_db_id,"
                 "kickoff_local,"
                 "status"
             ),
@@ -266,6 +268,77 @@ def get_todays_matches():
     )
 
     return rows
+
+
+# ============================================================
+# فورم الفريق (آخر 3 مباريات) — من قاعدة بياناتنا فقط،
+# من غير أي اعتماد على مصدر خارجي.
+# ============================================================
+
+def get_recent_form(team_db_id, before_kickoff, limit=3):
+
+    if not team_db_id:
+        return []
+
+    rows = supabase_request(
+        "GET",
+        "matches",
+        params={
+            "select": (
+                "home_team_db_id,away_team_db_id,"
+                "home_score,away_score,kickoff_local"
+            ),
+            "status": "eq.FINISHED",
+            "kickoff_local": f"lt.{before_kickoff}",
+            "or": (
+                f"(home_team_db_id.eq.{team_db_id},"
+                f"away_team_db_id.eq.{team_db_id})"
+            ),
+            "order": "kickoff_local.desc",
+            "limit": str(limit),
+        },
+    )
+
+    results = []
+
+    for row in rows:
+
+        home_score = row.get("home_score")
+        away_score = row.get("away_score")
+
+        if home_score is None or away_score is None:
+            continue
+
+        is_home = row.get("home_team_db_id") == team_db_id
+
+        team_score = home_score if is_home else away_score
+        opponent_score = away_score if is_home else home_score
+
+        if team_score > opponent_score:
+            results.append("W")
+        elif team_score < opponent_score:
+            results.append("L")
+        else:
+            results.append("D")
+
+    return results
+
+
+def format_form(results):
+
+    if not results:
+        return ""
+
+    icons = {
+        "W": "✅",
+        "D": "➖",
+        "L": "❌",
+    }
+
+    # الأقدم أولاً -> الأحدث آخرًا (سهل القراءة من شمال لليمين)
+    ordered = list(reversed(results))
+
+    return "".join(icons[r] for r in ordered)
 
 
 # ============================================================
@@ -376,6 +449,29 @@ def build_schedule_message(match):
 
     if time_text:
         lines.append(f"⏰ {time_text} بتوقيت القاهرة")
+        lines.append("")
+
+    home_form = format_form(
+        get_recent_form(
+            match.get("home_team_db_id"),
+            kickoff_local,
+        )
+    )
+
+    away_form = format_form(
+        get_recent_form(
+            match.get("away_team_db_id"),
+            kickoff_local,
+        )
+    )
+
+    if home_form:
+        lines.append(f"📊 فورم {home}: {home_form}")
+
+    if away_form:
+        lines.append(f"📊 فورم {away}: {away_form}")
+
+    if home_form or away_form:
         lines.append("")
 
     lines.append(HASHTAGS)
