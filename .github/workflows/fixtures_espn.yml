@@ -1,4 +1,4 @@
-name: ESPN Fixtures Sync
+name: كود سحب احداث المباراة
 
 on:
   schedule:
@@ -26,7 +26,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install requests
 
-      - name: Run ESPN sync
+      - name: كود سحب احداث المباراة
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
