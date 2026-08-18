@@ -2042,6 +2042,92 @@ def upsert_match_events(
 
 
 # ============================================================
+# EXTRACT + UPSERT PLAYERS
+# ============================================================
+#
+# كل مرة نحفظ فيها أحداث ماتش، نلقط أي لاعب (هداف، صانع، بديل
+# داخل/خارج) ونضيفه لجدول players لو لسه مش موجود. لو الاسم
+# العربي (name_ar) متسجل قبل كده، مش بنلمسه خالص.
+# ============================================================
+
+def extract_players_from_event_records(
+    event_records,
+    team_db_ids,
+):
+
+    players_by_id = {}
+
+    field_pairs = [
+        ("player_id", "player_name"),
+        ("assist_player_id", "assist_player_name"),
+        ("player_out_id", "player_out_name"),
+        ("player_in_id", "player_in_name"),
+    ]
+
+    for record in event_records:
+
+        team_db_id = team_db_ids.get(
+            record.get("team_id")
+        )
+
+        for id_field, name_field in field_pairs:
+
+            source_player_id = record.get(id_field)
+            name = record.get(name_field)
+
+            if not source_player_id or not name:
+                continue
+
+            players_by_id[source_player_id] = {
+                "source": "espn",
+                "source_player_id": source_player_id,
+                "name": name,
+                "team_id": team_db_id,
+            }
+
+    return list(players_by_id.values())
+
+
+def upsert_players(
+    records,
+):
+
+    if not records:
+        return 0
+
+    # نبعت بس name/team_id، مش بنبعت name_ar، عشان أي
+    # اسم عربي متسجل يدويًا يفضل زي ما هو من غير ما يتمسح.
+
+    supabase_request(
+
+        "POST",
+
+        "players",
+
+        {
+
+            "on_conflict":
+                "source,source_player_id"
+
+        },
+
+        records,
+
+        extra_headers={
+            "Prefer": (
+                "resolution=merge-duplicates,"
+                "return=minimal"
+            )
+        },
+
+    )
+
+    return len(
+        records
+    )
+
+
+# ============================================================
 # SYNC ONE LEAGUE
 # ============================================================
 
@@ -2288,6 +2374,28 @@ def sync_league(
             totals[
                 "events"
             ] += saved
+
+            try:
+
+                player_records = (
+                    extract_players_from_event_records(
+                        event_records,
+                        team_db_ids,
+                    )
+                )
+
+                upsert_players(
+                    player_records
+                )
+
+            except Exception as player_error:
+
+                log(
+                    f"WARNING players "
+                    f"{league_name} "
+                    f"match={source_match_id}: "
+                    f"{player_error}"
+                )
 
             if event_records:
 
