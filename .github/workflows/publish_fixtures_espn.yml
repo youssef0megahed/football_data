@@ -1,4 +1,4 @@
-name: كود نشر المواعيد والاحداث 
+name: كود نشر الاحداث 
 
 on:
   schedule:
@@ -31,7 +31,7 @@ jobs:
             pip install requests
           fi
 
-      - name: كود نشر المواعيد والاحداث
+      - name: كود نشر الاحداث
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
