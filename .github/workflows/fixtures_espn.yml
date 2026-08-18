@@ -2,7 +2,7 @@ name: ESPN Fixtures Sync
 
 on:
   schedule:
-    - cron: "*/1 * * * *"
+    - cron: "*/2 * * * *"
 
   workflow_dispatch:
 
@@ -10,7 +10,7 @@ jobs:
   fixtures:
     runs-on: ubuntu-latest
 
-    timeout-minutes: 1
+    timeout-minutes: 2
 
     steps:
       - name: Checkout repository
