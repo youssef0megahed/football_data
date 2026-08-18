@@ -350,12 +350,14 @@ def score_line(event, match):
 def get_substitution_players(event):
 
     player_out = (
-        event.get("player_out_name")
+        event.get("player_out_display")
+        or event.get("player_out_name")
         or ""
     )
 
     player_in = (
-        event.get("player_in_name")
+        event.get("player_in_display")
+        or event.get("player_in_name")
         or ""
     )
 
@@ -377,7 +379,8 @@ def build_event_message(event, match):
     )
 
     player = (
-        event.get("player_name")
+        event.get("player_display")
+        or event.get("player_name")
         or ""
     )
 
@@ -1005,6 +1008,73 @@ def attach_event_team_display(events):
 
 
 # ============================================================
+# أسماء اللاعبين بالعربي (عن طريق source_player_id من ESPN)
+# ============================================================
+
+def get_players_ar_by_source(source_player_ids):
+
+    if not source_player_ids:
+        return {}
+
+    ids = ",".join(
+        str(value)
+        for value in source_player_ids
+    )
+
+    rows = supabase_request(
+        "GET",
+        "players",
+        params={
+            "select": "source_player_id,name,name_ar",
+            "source": "eq.espn",
+            "source_player_id": f"in.({ids})",
+        },
+    )
+
+    return {
+        str(row["source_player_id"]): row
+        for row in rows
+    }
+
+
+# ============================================================
+# إضافة الأسماء العربية للاعبين المذكورين في كل حدث
+# (هداف / صانع / بديل داخل / بديل خارج)
+# ============================================================
+
+def attach_event_player_display(events):
+
+    player_id_fields = [
+        ("player_id", "player_name", "player_display"),
+        ("assist_player_id", "assist_player_name", "assist_display"),
+        ("player_out_id", "player_out_name", "player_out_display"),
+        ("player_in_id", "player_in_name", "player_in_display"),
+    ]
+
+    source_ids = set()
+
+    for event in events:
+        for id_field, _, _ in player_id_fields:
+            if event.get(id_field):
+                source_ids.add(event[id_field])
+
+    players_ar = get_players_ar_by_source(source_ids)
+
+    for event in events:
+
+        for id_field, name_field, display_field in player_id_fields:
+
+            player = players_ar.get(
+                str(event.get(id_field))
+            )
+
+            event[display_field] = resolve_name(
+                event.get(name_field),
+                player.get("name_ar") if player else None,
+            )
+
+
+# ============================================================
 # DUPLICATE PROTECTION
 #
 # IMPORTANT:
@@ -1325,6 +1395,10 @@ def main():
     )
 
     attach_event_team_display(
+        events
+    )
+
+    attach_event_player_display(
         events
     )
 
