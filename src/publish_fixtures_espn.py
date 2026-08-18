@@ -49,6 +49,35 @@ IGNORED_EVENTS = {
     "official_review",
 }
 
+# ============================================================
+# أسماء البطولات بالعربي
+# ============================================================
+
+COMPETITION_NAMES_AR = {
+    "Premier League": "الدوري الإنجليزي الممتاز",
+    "La Liga": "الدوري الإسباني",
+    "Serie A": "الدوري الإيطالي",
+    "Bundesliga": "الدوري الألماني",
+    "Ligue 1": "الدوري الفرنسي",
+}
+
+
+def resolve_name(name, name_ar):
+    """يرجع الاسم العربي لو موجود، وإلا يرجع الاسم الإنجليزي."""
+
+    if name_ar:
+        return name_ar
+
+    return name or ""
+
+
+def make_hashtag(text):
+
+    if not text:
+        return ""
+
+    return "#" + text.replace(" ", "_")
+
 
 # ============================================================
 # LOGGING
@@ -296,12 +325,14 @@ def score_line(event, match):
         return ""
 
     home = (
-        match.get("home_team_name")
+        match.get("home_team_display")
+        or match.get("home_team_name")
         or "الفريق الأول"
     )
 
     away = (
-        match.get("away_team_name")
+        match.get("away_team_display")
+        or match.get("away_team_name")
         or "الفريق الثاني"
     )
 
@@ -340,7 +371,8 @@ def build_event_message(event, match):
     event_type = event.get("event_type")
 
     team = (
-        event.get("team_name")
+        event.get("team_display")
+        or event.get("team_name")
         or ""
     )
 
@@ -355,14 +387,31 @@ def build_event_message(event, match):
     )
 
     home = (
-        match.get("home_team_name")
+        match.get("home_team_display")
+        or match.get("home_team_name")
         or "الفريق الأول"
     )
 
     away = (
-        match.get("away_team_name")
+        match.get("away_team_display")
+        or match.get("away_team_name")
         or "الفريق الثاني"
     )
+
+    competition = (
+        match.get("competition_name_display")
+        or match.get("competition_name")
+        or ""
+    )
+
+    hashtag = make_hashtag(competition)
+
+    header_lines = []
+
+    if competition:
+        header_lines.append(
+            f"🏆 {competition}"
+        )
 
 
     # --------------------------------------------------------
@@ -371,7 +420,7 @@ def build_event_message(event, match):
 
     if event_type == "goal":
 
-        lines = [
+        lines = header_lines + [
             "⚽ هدف!"
         ]
 
@@ -398,6 +447,9 @@ def build_event_message(event, match):
                 f"⏱️ {minute}"
             )
 
+        if hashtag:
+            lines.append(hashtag)
+
         return "\n".join(lines)
 
 
@@ -407,7 +459,7 @@ def build_event_message(event, match):
 
     if event_type == "yellow_card":
 
-        lines = [
+        lines = header_lines + [
             "🟨 بطاقة صفراء"
         ]
 
@@ -421,10 +473,21 @@ def build_event_message(event, match):
                 f"👤 {player}"
             )
 
+        score = score_line(
+            event,
+            match
+        )
+
+        if score:
+            lines.append(score)
+
         if minute:
             lines.append(
                 f"⏱️ {minute}"
             )
+
+        if hashtag:
+            lines.append(hashtag)
 
         return "\n".join(lines)
 
@@ -435,7 +498,7 @@ def build_event_message(event, match):
 
     if event_type == "red_card":
 
-        lines = [
+        lines = header_lines + [
             "🟥 بطاقة حمراء"
         ]
 
@@ -449,10 +512,21 @@ def build_event_message(event, match):
                 f"👤 {player}"
             )
 
+        score = score_line(
+            event,
+            match
+        )
+
+        if score:
+            lines.append(score)
+
         if minute:
             lines.append(
                 f"⏱️ {minute}"
             )
+
+        if hashtag:
+            lines.append(hashtag)
 
         return "\n".join(lines)
 
@@ -467,7 +541,7 @@ def build_event_message(event, match):
             get_substitution_players(event)
         )
 
-        lines = [
+        lines = header_lines + [
             "🔄 تبديل"
         ]
 
@@ -491,6 +565,9 @@ def build_event_message(event, match):
                 f"⏱️ {minute}"
             )
 
+        if hashtag:
+            lines.append(hashtag)
+
         return "\n".join(lines)
 
 
@@ -500,7 +577,7 @@ def build_event_message(event, match):
 
     if event_type == "var":
 
-        lines = [
+        lines = header_lines + [
             "📺 مراجعة تقنية الفيديو"
         ]
 
@@ -514,10 +591,21 @@ def build_event_message(event, match):
                 f"👤 {player}"
             )
 
+        score = score_line(
+            event,
+            match
+        )
+
+        if score:
+            lines.append(score)
+
         if minute:
             lines.append(
                 f"⏱️ {minute}"
             )
+
+        if hashtag:
+            lines.append(hashtag)
 
         return "\n".join(lines)
 
@@ -528,7 +616,7 @@ def build_event_message(event, match):
 
     if event_type == "penalty":
 
-        lines = [
+        lines = header_lines + [
             "⚽ ركلة جزاء"
         ]
 
@@ -542,10 +630,21 @@ def build_event_message(event, match):
                 f"👤 {player}"
             )
 
+        score = score_line(
+            event,
+            match
+        )
+
+        if score:
+            lines.append(score)
+
         if minute:
             lines.append(
                 f"⏱️ {minute}"
             )
+
+        if hashtag:
+            lines.append(hashtag)
 
         return "\n".join(lines)
 
@@ -556,10 +655,16 @@ def build_event_message(event, match):
 
     if event_type == "kickoff":
 
-        return (
-            "🟢 بداية المباراة\n\n"
-            f"{home} 🆚 {away}"
-        )
+        lines = header_lines + [
+            "🟢 بداية المباراة",
+            "",
+            f"{home} 🆚 {away}",
+        ]
+
+        if hashtag:
+            lines.append(hashtag)
+
+        return "\n".join(lines)
 
 
     # --------------------------------------------------------
@@ -568,10 +673,16 @@ def build_event_message(event, match):
 
     if event_type == "start_2nd_half":
 
-        return (
-            "▶️ بداية الشوط الثاني\n\n"
-            f"{home} 🆚 {away}"
-        )
+        lines = header_lines + [
+            "▶️ بداية الشوط الثاني",
+            "",
+            f"{home} 🆚 {away}",
+        ]
+
+        if hashtag:
+            lines.append(hashtag)
+
+        return "\n".join(lines)
 
 
     # --------------------------------------------------------
@@ -580,7 +691,7 @@ def build_event_message(event, match):
 
     if event_type == "halftime":
 
-        lines = [
+        lines = header_lines + [
             "⏸️ نهاية الشوط الأول"
         ]
 
@@ -592,6 +703,9 @@ def build_event_message(event, match):
         if score:
             lines.append(score)
 
+        if hashtag:
+            lines.append(hashtag)
+
         return "\n".join(lines)
 
 
@@ -601,7 +715,7 @@ def build_event_message(event, match):
 
     if event_type == "fulltime":
 
-        lines = [
+        lines = header_lines + [
             "🏁 نهاية المباراة"
         ]
 
@@ -612,6 +726,9 @@ def build_event_message(event, match):
 
         if score:
             lines.append(score)
+
+        if hashtag:
+            lines.append(hashtag)
 
         return "\n".join(lines)
 
@@ -736,6 +853,8 @@ def get_matches(match_ids):
                 "source_match_id,"
                 "home_team_name,"
                 "away_team_name,"
+                "home_team_db_id,"
+                "away_team_db_id,"
                 "home_score,"
                 "away_score,"
                 "status,"
@@ -752,6 +871,137 @@ def get_matches(match_ids):
         str(row["id"]): row
         for row in rows
     }
+
+
+# ============================================================
+# أسماء الفرق بالعربي (عن طريق id الداخلي في teams)
+# ============================================================
+
+def get_teams_ar_by_id(team_db_ids):
+
+    if not team_db_ids:
+        return {}
+
+    ids = ",".join(
+        str(value)
+        for value in team_db_ids
+    )
+
+    rows = supabase_request(
+        "GET",
+        "teams",
+        params={
+            "select": "id,name,name_ar",
+            "id": f"in.({ids})",
+        },
+    )
+
+    return {
+        str(row["id"]): row
+        for row in rows
+    }
+
+
+# ============================================================
+# أسماء الفرق بالعربي (عن طريق source_team_id من ESPN)
+# ============================================================
+
+def get_teams_ar_by_source(source_team_ids):
+
+    if not source_team_ids:
+        return {}
+
+    ids = ",".join(
+        str(value)
+        for value in source_team_ids
+    )
+
+    rows = supabase_request(
+        "GET",
+        "teams",
+        params={
+            "select": "source_team_id,name,name_ar",
+            "source": "eq.espn",
+            "source_team_id": f"in.({ids})",
+        },
+    )
+
+    return {
+        str(row["source_team_id"]): row
+        for row in rows
+    }
+
+
+# ============================================================
+# إضافة الأسماء العربية للمباريات (فريق مضيف / ضيف / البطولة)
+# ============================================================
+
+def attach_match_display_names(matches):
+
+    team_db_ids = set()
+
+    for match in matches.values():
+
+        if match.get("home_team_db_id") is not None:
+            team_db_ids.add(match["home_team_db_id"])
+
+        if match.get("away_team_db_id") is not None:
+            team_db_ids.add(match["away_team_db_id"])
+
+    teams_ar = get_teams_ar_by_id(team_db_ids)
+
+    for match in matches.values():
+
+        home_team = teams_ar.get(
+            str(match.get("home_team_db_id"))
+        )
+
+        away_team = teams_ar.get(
+            str(match.get("away_team_db_id"))
+        )
+
+        match["home_team_display"] = resolve_name(
+            match.get("home_team_name"),
+            home_team.get("name_ar") if home_team else None,
+        )
+
+        match["away_team_display"] = resolve_name(
+            match.get("away_team_name"),
+            away_team.get("name_ar") if away_team else None,
+        )
+
+        match["competition_name_display"] = (
+            COMPETITION_NAMES_AR.get(
+                match.get("competition_name"),
+                match.get("competition_name"),
+            )
+        )
+
+
+# ============================================================
+# إضافة الاسم العربي لفريق الحدث (team_id في match_events)
+# ============================================================
+
+def attach_event_team_display(events):
+
+    source_ids = {
+        event["team_id"]
+        for event in events
+        if event.get("team_id")
+    }
+
+    teams_ar = get_teams_ar_by_source(source_ids)
+
+    for event in events:
+
+        team = teams_ar.get(
+            str(event.get("team_id"))
+        )
+
+        event["team_display"] = resolve_name(
+            event.get("team_name"),
+            team.get("name_ar") if team else None,
+        )
 
 
 # ============================================================
@@ -1068,6 +1318,14 @@ def main():
 
     matches = get_matches(
         match_ids
+    )
+
+    attach_match_display_names(
+        matches
+    )
+
+    attach_event_team_display(
+        events
     )
 
 
