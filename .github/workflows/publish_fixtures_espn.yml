@@ -3,7 +3,7 @@ name: كود نشر المواعيد والاحداث
 on:
   schedule:
     # فحص الأحداث كل 1 دقائق
-    - cron: "*/1 * * * *"
+    - cron: "*/2 * * * *"
 
   workflow_dispatch:
 
@@ -11,7 +11,7 @@ jobs:
   publish:
     runs-on: ubuntu-latest
 
-    timeout-minutes: 1
+    timeout-minutes: 2
 
     steps:
       - name: Checkout repository
