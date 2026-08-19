@@ -28,7 +28,7 @@ ESPN_BASE_URL = (
     "https://site.api.espn.com/apis/site/v2/sports/soccer"
 )
 
-GEMINI_MODEL = "gemini-flash-latest"
+GEMINI_MODEL = "gemini-3.6-flash, gemini-3.1flash-light"
 
 GEMINI_URL = (
     "https://generativelanguage.googleapis.com/v1beta/models/"
