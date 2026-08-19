@@ -288,6 +288,7 @@ def reserve_announcement(match_id):
     record = {
         "match_id": match_id,
         "message_type": MESSAGE_TYPE,
+        "status": "sent",
         "channel": EVENT_CHANNEL,
         "sent_at": datetime.now(TIMEZONE).isoformat(),
     }
