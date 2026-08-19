@@ -241,9 +241,9 @@ def get_todays_matches():
 
     today = datetime.now(TIMEZONE).date()
 
-    start = f"{today.isoformat()}T00:00:00"
+    start = f"{today.isoformat()}T00:00:00+03:00"
 
-    end = f"{(today + timedelta(days=1)).isoformat()}T00:00:00"
+    end = f"{(today + timedelta(days=1)).isoformat()}T00:00:00+03:00"
 
     rows = supabase_request(
         "GET",
@@ -391,6 +391,64 @@ def reserve_announcement(match_id):
     )
 
 
+def resolve_name(name, name_ar):
+    """يرجع الاسم العربي لو موجود، وإلا يرجع الاسم الإنجليزي."""
+
+    if name_ar:
+        return name_ar
+
+    return name or ""
+
+
+def get_teams_ar_by_id(team_db_ids):
+
+    if not team_db_ids:
+        return {}
+
+    ids = ",".join(str(v) for v in team_db_ids)
+
+    rows = supabase_request(
+        "GET",
+        "teams",
+        params={
+            "select": "id,name,name_ar",
+            "id": f"in.({ids})",
+        },
+    )
+
+    return {str(row["id"]): row for row in rows}
+
+
+def attach_match_display_names(matches):
+
+    team_db_ids = set()
+
+    for match in matches:
+
+        if match.get("home_team_db_id") is not None:
+            team_db_ids.add(match["home_team_db_id"])
+
+        if match.get("away_team_db_id") is not None:
+            team_db_ids.add(match["away_team_db_id"])
+
+    teams_ar = get_teams_ar_by_id(team_db_ids)
+
+    for match in matches:
+
+        home_team = teams_ar.get(str(match.get("home_team_db_id")))
+        away_team = teams_ar.get(str(match.get("away_team_db_id")))
+
+        match["home_team_display"] = resolve_name(
+            match.get("home_team_name"),
+            home_team.get("name_ar") if home_team else None,
+        )
+
+        match["away_team_display"] = resolve_name(
+            match.get("away_team_name"),
+            away_team.get("name_ar") if away_team else None,
+        )
+
+
 # ============================================================
 # MESSAGE FORMAT
 # ============================================================
@@ -416,8 +474,17 @@ def build_schedule_message(match):
         competition, competition
     )
 
-    home = match.get("home_team_name") or "الفريق الأول"
-    away = match.get("away_team_name") or "الفريق الثاني"
+    home = (
+        match.get("home_team_display")
+        or match.get("home_team_name")
+        or "الفريق الأول"
+    )
+
+    away = (
+        match.get("away_team_display")
+        or match.get("away_team_name")
+        or "الفريق الثاني"
+    )
 
     kickoff_local = match.get("kickoff_local")
 
@@ -427,6 +494,11 @@ def build_schedule_message(match):
     if kickoff_local:
 
         dt = datetime.fromisoformat(kickoff_local)
+
+        # الوقت الراجع من Supabase غالبًا بتوقيت UTC —
+        # لازم نحوّله لتوقيت القاهرة قبل ما نعرضه.
+        if dt.tzinfo is not None:
+            dt = dt.astimezone(TIMEZONE)
 
         date_text = dt.date().isoformat()
         time_text = format_arabic_time(dt)
@@ -499,6 +571,8 @@ def main():
         return
 
     log(f"Matches today: {len(matches)}")
+
+    attach_match_display_names(matches)
 
     match_ids = [match["id"] for match in matches]
 
