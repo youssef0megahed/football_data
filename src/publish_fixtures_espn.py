@@ -1091,6 +1091,7 @@ def reserve_event(event_id):
 
     record = {
         "match_event_id": event_id,
+        "status": "sent",
         "channel": EVENT_CHANNEL,
         "sent_at": datetime.now(
             TIMEZONE
