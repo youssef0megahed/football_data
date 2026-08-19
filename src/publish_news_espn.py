@@ -1,4 +1,4 @@
-flash os
+import os
 import json
 import time
 import requests
@@ -28,11 +28,14 @@ ESPN_BASE_URL = (
     "https://site.api.espn.com/apis/site/v2/sports/soccer"
 )
 
-GEMINI_MODEL = "gemini-3.6 flash, gemini-3.1 flash-lite" 
+GEMINI_MODELS = [
+    "gemini-flash-latest",
+    "gemini-flash-lite-latest",
+]
 
-GEMINI_URL = (
+GEMINI_URL_TEMPLATE = (
     "https://generativelanguage.googleapis.com/v1beta/models/"
-    f"{GEMINI_MODEL}:generateContent"
+    "{model}:generateContent"
 )
 
 # أقصى عدد أخبار جديدة نترجمها وننشرها في التشغيلة الواحدة
@@ -237,6 +240,39 @@ def telegram_request(method, payload):
 # GEMINI TRANSLATION
 # ============================================================
 
+def call_gemini(model, payload):
+
+    url = GEMINI_URL_TEMPLATE.format(model=model)
+
+    def request():
+
+        response = requests.post(
+            url,
+            headers={
+                "x-goog-api-key": GEMINI_API_KEY,
+                "Content-Type": "application/json",
+            },
+            json=payload,
+            timeout=REQUEST_TIMEOUT,
+        )
+
+        if response.status_code == 200:
+            return response.json()
+
+        if response.status_code in {408, 429, 500, 502, 503, 504}:
+            raise RuntimeError(
+                f"Gemini ({model}) transient HTTP "
+                f"{response.status_code}"
+            )
+
+        raise RuntimeError(
+            f"Gemini ({model}) HTTP {response.status_code}: "
+            f"{response.text[:500]}"
+        )
+
+    return retry_call(request, f"Gemini translate ({model})")
+
+
 def translate_article(headline_en, description_en):
 
     prompt = (
@@ -260,50 +296,50 @@ def translate_article(headline_en, description_en):
         },
     }
 
-    def request():
+    last_error = None
 
-        response = requests.post(
-            GEMINI_URL,
-            headers={
-                "x-goog-api-key": GEMINI_API_KEY,
-                "Content-Type": "application/json",
-            },
-            json=payload,
-            timeout=REQUEST_TIMEOUT,
-        )
+    for model in GEMINI_MODELS:
 
-        if response.status_code == 200:
-            return response.json()
+        try:
 
-        if response.status_code in {408, 429, 500, 502, 503, 504}:
-            raise RuntimeError(
-                f"Gemini transient HTTP {response.status_code}"
+            data = call_gemini(model, payload)
+
+            text = (
+                data["candidates"][0]["content"]["parts"][0]["text"]
             )
 
-        raise RuntimeError(
-            f"Gemini HTTP {response.status_code}: "
-            f"{response.text[:500]}"
-        )
+            text = text.strip()
 
-    data = retry_call(request, "Gemini translate")
+            if text.startswith("```"):
+                text = text.strip("`")
+                if text.startswith("json"):
+                    text = text[4:]
 
-    text = (
-        data["candidates"][0]["content"]["parts"][0]["text"]
-    )
+            parsed = json.loads(text.strip())
 
-    # الموديل ممكن يرجع الـ JSON ملفوف في ```json أحيانًا رغم التعليمات
-    text = text.strip()
+            headline_ar = parsed.get("headline_ar", "").strip()
+            description_ar = parsed.get("description_ar", "").strip()
 
-    if text.startswith("```"):
-        text = text.strip("`")
-        if text.startswith("json"):
-            text = text[4:]
+            if not headline_ar:
+                raise RuntimeError(
+                    "Gemini returned an empty headline_ar"
+                )
 
-    parsed = json.loads(text.strip())
+            return headline_ar, description_ar
 
-    return (
-        parsed.get("headline_ar", "").strip(),
-        parsed.get("description_ar", "").strip(),
+        except Exception as error:
+
+            last_error = error
+
+            log(
+                f"Gemini model '{model}' failed: {error} "
+                f"— trying next model."
+            )
+
+            continue
+
+    raise RuntimeError(
+        f"All Gemini models failed. Last error: {last_error}"
     )
 
 
