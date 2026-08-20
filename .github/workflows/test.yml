@@ -1,0 +1,39 @@
+name: تشخيص بيانات ESPN (boxscore)
+
+on:
+  workflow_dispatch:
+    inputs:
+      league_slug:
+        description: "كود الدوري (مثال: esp.1, eng.1, ita.1, ger.1, fra.1)"
+        required: false
+        default: "esp.1"
+      event_id:
+        description: "رقم الماتش في ESPN (source_match_id)"
+        required: false
+        default: "401882925"
+
+jobs:
+  debug-boxscore:
+    runs-on: ubuntu-latest
+
+    timeout-minutes: 3
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests
+
+      - name: تشخيص بيانات ESPN
+        run: |
+          python test.py \
+            "${{ github.event.inputs.league_slug }}" \
+            "${{ github.event.inputs.event_id }}"
