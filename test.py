@@ -86,7 +86,7 @@ def main():
                 )
 
     print("=" * 60)
-    print("ROSTERS (full first player sample)")
+    print("ROSTERS (one starter, full detail, links removed)")
     print("=" * 60)
 
     rosters = summary.get("rosters")
@@ -101,18 +101,29 @@ def main():
                 team_roster.get("team", {}).get("displayName")
             )
 
-            formation = team_roster.get("formation")
-
             roster = team_roster.get("roster", [])
 
-            print(
-                f"--- {team_name} "
-                f"(formation={formation}, "
-                f"players={len(roster)}) ---"
+            starter = next(
+                (p for p in roster if p.get("starter")), None
             )
 
-            if roster:
-                print(json.dumps(roster[0], indent=2)[:2000])
+            print(f"--- {team_name} ---")
+
+            if starter:
+
+                clean = dict(starter)
+
+                if isinstance(clean.get("athlete"), dict):
+                    clean["athlete"] = {
+                        k: v
+                        for k, v in clean["athlete"].items()
+                        if k != "links"
+                    }
+
+                print(json.dumps(clean, indent=2, ensure_ascii=False))
+
+            else:
+                print("No starter found in this roster.")
 
     print("=" * 60)
     print("LEADERS (full detail)")
@@ -137,8 +148,25 @@ def main():
                 print(f"  category: {category.get('displayName')}")
 
                 for leader in category.get("leaders", [])[:1]:
+
+                    clean = {
+                        k: v
+                        for k, v in leader.items()
+                        if k not in ("links", "logos")
+                    }
+
+                    if isinstance(clean.get("athlete"), dict):
+                        clean["athlete"] = {
+                            k: v
+                            for k, v in clean["athlete"].items()
+                            if k not in ("links", "logos")
+                        }
+
                     print(
-                        f"    {json.dumps(leader, indent=4)[:600]}"
+                        "    "
+                        + json.dumps(
+                            clean, indent=4, ensure_ascii=False
+                        )
                     )
 
     print("DONE")
