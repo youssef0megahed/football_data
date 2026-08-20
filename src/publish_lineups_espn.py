@@ -338,13 +338,18 @@ def get_team_by_source_id(source_team_id):
 
 def parse_lineups(summary, match):
 
-    lineups = summary.get("lineups") or []
+    lineups = (
+        summary.get("rosters")
+        or summary.get("lineups")
+        or []
+    )
 
     if not lineups:
         log(
-            f"No 'lineups' key yet for match "
+            f"No 'rosters'/'lineups' key yet for match "
             f"{match['source_match_id']} "
-            f"(not published by ESPN yet, or wrong field name)."
+            f"(not published by ESPN yet, or wrong field name). "
+            f"Top-level summary keys: {list(summary.keys())}"
         )
         return []
 
