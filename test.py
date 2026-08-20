@@ -59,31 +59,8 @@ def main():
     print(list(summary.keys()))
 
     print("=" * 60)
-    print("BOXSCORE")
+    print("BOXSCORE (skipped — already confirmed)")
     print("=" * 60)
-
-    boxscore = summary.get("boxscore")
-
-    if boxscore is None:
-        print("No 'boxscore' key in response.")
-    else:
-
-        for team_block in boxscore.get("teams", []):
-
-            team_name = (
-                team_block.get("team", {}).get("displayName")
-            )
-
-            home_away = team_block.get("homeAway")
-
-            print(f"--- {team_name} ({home_away}) ---")
-
-            for stat in team_block.get("statistics", []):
-                print(
-                    f"  {stat.get('name')}: "
-                    f"{stat.get('displayValue')} "
-                    f"({stat.get('label')})"
-                )
 
     print("=" * 60)
     print("ROSTERS (one starter, full detail, links removed)")
@@ -111,16 +88,25 @@ def main():
 
             if starter:
 
-                clean = dict(starter)
+                athlete = starter.get("athlete", {})
 
-                if isinstance(clean.get("athlete"), dict):
-                    clean["athlete"] = {
-                        k: v
-                        for k, v in clean["athlete"].items()
-                        if k != "links"
-                    }
+                print(
+                    f"Player: {athlete.get('fullName')} "
+                    f"| position: "
+                    f"{starter.get('position', {}).get('name')} "
+                    f"| jersey: {starter.get('jersey')}"
+                )
 
-                print(json.dumps(clean, indent=2, ensure_ascii=False))
+                stats = starter.get("stats", [])
+
+                print(f"Player stats count: {len(stats)}")
+
+                for stat in stats:
+                    print(
+                        f"  {stat.get('name')}: "
+                        f"{stat.get('displayValue')} "
+                        f"({stat.get('displayName')})"
+                    )
 
             else:
                 print("No starter found in this roster.")
@@ -145,29 +131,17 @@ def main():
 
             for category in team_leaders.get("leaders", []):
 
-                print(f"  category: {category.get('displayName')}")
+                top = (category.get("leaders") or [{}])[0]
 
-                for leader in category.get("leaders", [])[:1]:
+                athlete_name = (
+                    top.get("athlete", {}).get("displayName")
+                )
 
-                    clean = {
-                        k: v
-                        for k, v in leader.items()
-                        if k not in ("links", "logos")
-                    }
-
-                    if isinstance(clean.get("athlete"), dict):
-                        clean["athlete"] = {
-                            k: v
-                            for k, v in clean["athlete"].items()
-                            if k not in ("links", "logos")
-                        }
-
-                    print(
-                        "    "
-                        + json.dumps(
-                            clean, indent=4, ensure_ascii=False
-                        )
-                    )
+                print(
+                    f"  {category.get('displayName')}: "
+                    f"{top.get('displayValue')} "
+                    f"— {athlete_name}"
+                )
 
     print("DONE")
 
