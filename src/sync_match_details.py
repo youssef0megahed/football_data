@@ -405,6 +405,15 @@ def classify_event_type(detail):
 
     combined = f"{type_slug} {text}"
 
+    # أنواع بنتجاهلها عمدًا (مش أخطاء، مجرد مش مهمة للتخزين)
+    ignored_markers = (
+        "delay", "review", "offside", "throw-in",
+        "free-kick", "corner-kick", "shot-", "save",
+    )
+
+    if any(marker in type_slug for marker in ignored_markers):
+        return "ignored"
+
     if "own goal" in combined:
         return "goal"
     if "goal" in combined and "own" not in combined:
@@ -447,6 +456,9 @@ def sync_events(match_db_id, summary, home_team_db_id, away_team_db_id):
     for index, detail in enumerate(key_events):
 
         event_type = classify_event_type(detail)
+
+        if event_type == "ignored":
+            continue
 
         if not event_type:
             skipped_unclassified += 1
