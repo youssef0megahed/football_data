@@ -56,12 +56,34 @@ def supabase_request(
     return retry_call(request, f"Supabase {method} {table}")
 
 
+def normalize_records(records):
+    """Supabase's PostgREST upsert بيرفض دفعة لو الصفوف مش كلها
+    بنفس المفاتيح بالظبط (زي لاعب حارس مرمى عنده إحصائيات مختلفة
+    عن لاعب خط وسط). الدالة دي بتوحّد كل الصفوف على نفس المفاتيح،
+    وتحط None للمفتاح الناقص."""
+
+    if not records:
+        return records
+
+    all_keys = set()
+
+    for record in records:
+        all_keys.update(record.keys())
+
+    return [
+        {key: record.get(key) for key in all_keys}
+        for record in records
+    ]
+
+
 def upsert(table, records, on_conflict, return_rows=False):
     """Upsert واحد أو أكتر من الصفوف. بيرجع الصفوف لو return_rows=True
     (مفيد لما محتاجين نعرف id الصف بعد الإدخال)."""
 
     if not records:
         return [] if return_rows else 0
+
+    records = normalize_records(records)
 
     prefer = "resolution=merge-duplicates"
     prefer += ",return=representation" if return_rows else ",return=minimal"
