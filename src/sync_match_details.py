@@ -194,6 +194,12 @@ def sync_rosters(match_db_id, summary):
 
     rosters = summary.get("rosters") or []
 
+    if not rosters:
+        log(
+            f"DEBUG match={match_db_id}: no 'rosters' key/empty. "
+            f"Top-level summary keys: {list(summary.keys())}"
+        )
+
     lineup_records = []
     player_stat_records = []
 
@@ -206,6 +212,13 @@ def sync_rosters(match_db_id, summary):
         team_db_id = get_team_db_id(source_team_id)
 
         roster = team_roster.get("roster", [])
+
+        if not roster:
+            log(
+                f"DEBUG match={match_db_id} team={source_team_id}: "
+                f"team_db_id={team_db_id}, roster empty. "
+                f"team_roster keys: {list(team_roster.keys())}"
+            )
 
         athletes = [
             entry.get("athlete", {})
@@ -380,13 +393,29 @@ def sync_events(match_db_id, summary, home_team_db_id, away_team_db_id):
 
     key_events = summary.get("keyEvents") or []
 
+    if not key_events:
+        log(
+            f"DEBUG match={match_db_id}: no 'keyEvents' key/empty. "
+            f"Top-level summary keys: {list(summary.keys())}"
+        )
+
     records = []
+    skipped_unclassified = 0
 
     for index, detail in enumerate(key_events):
 
         event_type = classify_event_type(detail)
 
         if not event_type:
+            skipped_unclassified += 1
+
+            if skipped_unclassified <= 3:
+                log(
+                    f"DEBUG match={match_db_id}: unclassified event "
+                    f"raw type={detail.get('type')}, "
+                    f"keys={list(detail.keys())}"
+                )
+
             continue
 
         team_source_id = str(
@@ -451,6 +480,13 @@ def sync_events(match_db_id, summary, home_team_db_id, away_team_db_id):
 
     if records:
         upsert("match_events", records, on_conflict="source,source_id")
+
+    if skipped_unclassified:
+        log(
+            f"DEBUG match={match_db_id}: "
+            f"skipped {skipped_unclassified} unclassified event(s) "
+            f"out of {len(key_events)} total keyEvents."
+        )
 
     return len(records)
 
