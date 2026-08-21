@@ -258,6 +258,16 @@ def sync_rosters(match_db_id, summary):
 
             stat_list = entry.get("stats", [])
 
+            if not stat_list:
+
+                athlete_name = athlete.get("fullName", "?")
+
+                log(
+                    f"DEBUG match={match_db_id}: player "
+                    f"'{athlete_name}' has empty 'stats' list. "
+                    f"Entry keys: {list(entry.keys())}"
+                )
+
             if stat_list:
 
                 stat_record = {
@@ -305,6 +315,12 @@ def sync_leaders(match_db_id, summary):
 
     leaders = summary.get("leaders") or []
 
+    if not leaders:
+        log(
+            f"DEBUG match={match_db_id}: no 'leaders' key/empty."
+        )
+        return 0
+
     records = []
 
     for team_leaders in leaders:
@@ -315,11 +331,26 @@ def sync_leaders(match_db_id, summary):
 
         team_db_id = get_team_db_id(source_team_id)
 
-        for category in team_leaders.get("leaders", []):
+        categories = team_leaders.get("leaders", [])
+
+        if not categories:
+            log(
+                f"DEBUG match={match_db_id} team={source_team_id}: "
+                f"'leaders' list present but empty categories. "
+                f"team_leaders keys: {list(team_leaders.keys())}"
+            )
+
+        for category in categories:
 
             top = (category.get("leaders") or [None])[0]
 
             if not top:
+                log(
+                    f"DEBUG match={match_db_id} team={source_team_id}: "
+                    f"category '{category.get('displayName')}' has "
+                    f"no leader entries. category keys: "
+                    f"{list(category.keys())}"
+                )
                 continue
 
             athlete = top.get("athlete") or {}
@@ -545,6 +576,8 @@ def get_matches_needing_detail_sync():
 
 def main():
 
+    import sys
+
     validate_environment()
 
     log("==================================================")
@@ -559,7 +592,30 @@ def main():
         c["id"]: c["source_id"] for c in competitions
     }
 
-    matches = get_matches_needing_detail_sync()
+    force_match_id = None
+
+    if len(sys.argv) > 1:
+        force_match_id = int(sys.argv[1])
+
+    if force_match_id:
+
+        rows = select(
+            "matches",
+            {
+                "select": (
+                    "id,source_id,status,competition_id,"
+                    "home_team_id,away_team_id"
+                ),
+                "id": f"eq.{force_match_id}",
+            },
+        )
+
+        matches = rows
+
+        log(f"FORCED resync for match={force_match_id}")
+
+    else:
+        matches = get_matches_needing_detail_sync()
 
     log(f"Matches needing detail sync: {len(matches)}")
 
