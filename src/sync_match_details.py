@@ -400,22 +400,33 @@ def extract_athletes(detail):
 
 def classify_event_type(detail):
 
-    type_text = (
-        (detail.get("type") or {}).get("text", "")
-    ).lower()
+    type_slug = str(detail.get("type", "")).lower()
+    text = str(detail.get("text", "")).lower()
 
-    if "goal" in type_text and "own" not in type_text:
+    combined = f"{type_slug} {text}"
+
+    if "own goal" in combined:
         return "goal"
-    if "yellow card" in type_text:
+    if "goal" in combined and "own" not in combined:
+        return "goal"
+    if "yellow" in combined:
         return "yellow_card"
-    if "red card" in type_text:
+    if "red" in combined and "card" in combined:
         return "red_card"
-    if "substitution" in type_text:
+    if "substitution" in combined:
         return "substitution"
-    if "penalty" in type_text:
+    if "penalty" in combined:
         return "penalty"
-    if "var" in type_text or "video" in type_text:
+    if "var" in combined or "video review" in combined:
         return "var"
+    if "kickoff" in type_slug:
+        return "kickoff"
+    if "start-2nd-half" in type_slug or "2nd-half" in type_slug:
+        return "start_2nd_half"
+    if "halftime" in type_slug:
+        return "halftime"
+    if "full-time" in type_slug or "fulltime" in type_slug:
+        return "fulltime"
 
     return None
 
