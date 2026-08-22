@@ -1,14 +1,19 @@
 name: نشر جدول الترتيب (صورة)
 
 on:
+  schedule:
+    # كل خميس الساعة 5 مساءً بتوقيت القاهرة (14:00 UTC)
+    - cron: "0 14 * * 4"
+
   workflow_dispatch:
     inputs:
       competition:
-        description: "اسم البطولة بالظبط زي ما مسجلة في القاعدة"
+        description: "اسم البطولة (أو all لكل الدوريات)"
         required: false
-        default: "Premier League"
+        default: "all"
         type: choice
         options:
+          - "all"
           - "Premier League"
           - "La Liga"
           - "Serie A"
@@ -19,7 +24,7 @@ jobs:
   publish-standings-image:
     runs-on: ubuntu-latest
 
-    timeout-minutes: 5
+    timeout-minutes: 10
 
     defaults:
       run:
@@ -55,4 +60,4 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
-          python publish_standings_image.py "${{ github.event.inputs.competition }}"
+          python publish_standings_image.py "${{ github.event.inputs.competition || 'all' }}"
