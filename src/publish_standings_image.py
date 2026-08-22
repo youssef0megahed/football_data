@@ -1,4 +1,6 @@
 import os
+import io
+import sys
 import requests
 import arabic_reshaper
 from bidi.algorithm import get_display
@@ -29,19 +31,38 @@ COMPETITION_NAMES_AR = {
     "Ligue 1": "الدوري الفرنسي",
 }
 
-# ألوان الهوية البصرية
-COLOR_BG = (18, 24, 38)
-COLOR_HEADER_BG = (30, 41, 59)
-COLOR_ROW_A = (24, 32, 48)
-COLOR_ROW_B = (30, 40, 58)
-COLOR_TEXT = (240, 240, 245)
-COLOR_TEXT_DIM = (170, 178, 195)
-COLOR_ACCENT = (56, 189, 148)
-COLOR_HEADER_TEXT = (255, 255, 255)
+COMPETITION_BANNER_COLOR = {
+    "Premier League": (55, 0, 60),
+    "La Liga": (238, 49, 36),
+    "Serie A": (0, 60, 130),
+    "Bundesliga": (214, 0, 24),
+    "Ligue 1": (16, 40, 90),
+}
 
-COLUMN_HEADERS_AR = [
-    "#", "الفريق", "لعب", "فوز", "تعادل", "خسارة", "له", "عليه", "فارق", "نقاط",
-]
+ZONE_COLORS = {
+    "cl": (52, 120, 220),
+    "el": (255, 140, 0),
+    "conf": (46, 160, 90),
+    "relegation": (210, 40, 40),
+}
+
+ZONE_RULES = {
+    "Premier League": {1: "cl", 2: "cl", 3: "cl", 4: "cl", 5: "el", 6: "conf"},
+    "La Liga": {1: "cl", 2: "cl", 3: "cl", 4: "cl", 5: "el", 6: "conf"},
+    "Serie A": {1: "cl", 2: "cl", 3: "cl", 4: "cl", 5: "el", 6: "conf"},
+    "Bundesliga": {1: "cl", 2: "cl", 3: "cl", 4: "cl", 5: "el", 6: "conf"},
+    "Ligue 1": {1: "cl", 2: "cl", 3: "cl", 4: "el", 5: "conf"},
+}
+
+RELEGATION_COUNT = 3
+
+COLOR_BG = (255, 255, 255)
+COLOR_HEADER_ROW_BG = (243, 244, 248)
+COLOR_ROW_EVEN = (255, 255, 255)
+COLOR_ROW_ODD = (250, 250, 252)
+COLOR_BORDER = (228, 229, 235)
+COLOR_TEXT = (20, 22, 30)
+COLOR_HEADER_TEXT = (255, 255, 255)
 
 
 def validate_telegram_env():
@@ -57,7 +78,6 @@ def validate_telegram_env():
 # ============================================================
 
 def shape_arabic(text):
-    """يحوّل نص عربي لشكل صحيح للرسم (الحروف متصلة، اتجاه صح)."""
 
     reshaped = arabic_reshaper.reshape(str(text))
 
@@ -119,12 +139,79 @@ def get_standings_data(competition_name):
 
         team_rows = select(
             "teams",
-            {"select": "id,name,name_ar", "id": f"in.({ids})"},
+            {
+                "select": "id,name,name_ar,logo",
+                "id": f"in.({ids})",
+            },
         )
 
         teams = {t["id"]: t for t in team_rows}
 
     return rows, teams
+
+
+# ============================================================
+# LOGO DOWNLOAD (best-effort, falls back to a plain circle)
+# ============================================================
+
+_logo_cache = {}
+
+
+def get_team_logo(url, size):
+
+    if not url:
+        return None
+
+    cache_key = (url, size)
+
+    if cache_key in _logo_cache:
+        return _logo_cache[cache_key]
+
+    try:
+
+        response = requests.get(url, timeout=REQUEST_TIMEOUT)
+        response.raise_for_status()
+
+        logo = Image.open(io.BytesIO(response.content)).convert("RGBA")
+        logo = logo.resize((size, size), Image.LANCZOS)
+
+        _logo_cache[cache_key] = logo
+
+        return logo
+
+    except Exception as error:
+        log(f"WARNING: failed to fetch logo {url}: {error}")
+        return None
+
+
+def draw_placeholder_logo(draw, cx, cy, size):
+
+    r = size / 2
+
+    draw.ellipse(
+        [(cx - r, cy - r), (cx + r, cy + r)],
+        fill=(225, 227, 233),
+        outline=COLOR_BORDER,
+    )
+
+
+# ============================================================
+# ZONE COLOR
+# ============================================================
+
+def get_zone_color(competition_name, rank, total_teams):
+
+    rules = ZONE_RULES.get(competition_name, {})
+
+    zone = rules.get(rank)
+
+    if zone:
+        return ZONE_COLORS[zone]
+
+    if rank > total_teams - RELEGATION_COUNT:
+        return ZONE_COLORS["relegation"]
+
+    return None
 
 
 # ============================================================
@@ -137,110 +224,160 @@ def draw_table(competition_name, rows, teams):
         competition_name, competition_name
     )
 
-    row_height = 56
-    header_height = 130
-    col_widths = [50, 300, 60, 60, 70, 70, 60, 60, 70, 70]
-    width = sum(col_widths) + 60
-    height = header_height + row_height * len(rows) + 40
+    banner_height = 110
+    header_row_height = 50
+    row_height = 78
+    logo_size = 46
+    zone_bar_width = 10
+
+    col_widths = {
+        "points": 90, "diff": 90, "goals": 100, "l": 60, "d": 60,
+        "w": 60, "played": 70, "team": 320, "rank": 70,
+    }
+
+    width = sum(col_widths.values()) + zone_bar_width
+    height = banner_height + header_row_height + row_height * len(rows)
 
     img = Image.new("RGB", (width, height), COLOR_BG)
     draw = ImageDraw.Draw(img)
 
-    font_title = ImageFont.truetype(FONT_BOLD_PATH, 34)
+    font_title = ImageFont.truetype(FONT_BOLD_PATH, 36)
     font_subtitle = ImageFont.truetype(FONT_REGULAR_PATH, 20)
     font_header = ImageFont.truetype(FONT_BOLD_PATH, 18)
-    font_cell = ImageFont.truetype(FONT_REGULAR_PATH, 18)
-    font_cell_bold = ImageFont.truetype(FONT_BOLD_PATH, 18)
+    font_cell = ImageFont.truetype(FONT_BOLD_PATH, 20)
+    font_team = ImageFont.truetype(FONT_BOLD_PATH, 21)
 
-    # --- العنوان ---
-    title_text = shape_arabic(f"🏆 {competition_ar}")
-    draw.text(
-        (width / 2, 30), title_text, font=font_title,
-        fill=COLOR_HEADER_TEXT, anchor="mm",
+    banner_color = COMPETITION_BANNER_COLOR.get(
+        competition_name, (30, 41, 59)
     )
 
-    subtitle_text = shape_arabic("جدول الترتيب")
+    draw.rectangle([(0, 0), (width, banner_height)], fill=banner_color)
+
     draw.text(
-        (width / 2, 70), subtitle_text, font=font_subtitle,
-        fill=COLOR_ACCENT, anchor="mm",
+        (width / 2, banner_height * 0.42),
+        shape_arabic(competition_ar),
+        font=font_title, fill=COLOR_HEADER_TEXT, anchor="mm",
     )
 
-    # --- رأس الجدول ---
-    y = header_height - 40
+    draw.text(
+        (width / 2, banner_height * 0.75),
+        shape_arabic("جدول الترتيب"),
+        font=font_subtitle, fill=(230, 230, 235), anchor="mm",
+    )
+
+    y = banner_height
 
     draw.rectangle(
-        [(30, y), (width - 30, y + 40)], fill=COLOR_HEADER_BG
+        [(0, y), (width, y + header_row_height)],
+        fill=COLOR_HEADER_ROW_BG,
     )
 
-    x = width - 30
+    x = width - zone_bar_width
 
-    for i, header in enumerate(COLUMN_HEADERS_AR):
+    header_order = [
+        ("rank", "ت"), ("team", "الفريق"), ("played", "لعب"),
+        ("w", "ف"), ("d", "ت"), ("l", "خ"), ("goals", "أهداف"),
+        ("diff", "الفرق"), ("points", "نقاط"),
+    ]
 
-        col_w = col_widths[i]
+    for key, label in header_order:
+
+        col_w = col_widths[key]
         x -= col_w
 
-        text = shape_arabic(header)
-
         draw.text(
-            (x + col_w / 2, y + 20), text, font=font_header,
-            fill=COLOR_HEADER_TEXT, anchor="mm",
+            (x + col_w / 2, y + header_row_height / 2),
+            shape_arabic(label),
+            font=font_header, fill=COLOR_TEXT, anchor="mm",
         )
 
-    # --- الصفوف ---
-    y = header_height
+    y = banner_height + header_row_height
+
+    total_teams = len(rows)
 
     for row_index, row in enumerate(rows):
 
         team = teams.get(row["team_id"], {})
         team_name = team.get("name_ar") or team.get("name") or "?"
 
-        bg = COLOR_ROW_A if row_index % 2 == 0 else COLOR_ROW_B
+        bg = COLOR_ROW_EVEN if row_index % 2 == 0 else COLOR_ROW_ODD
 
-        draw.rectangle(
-            [(30, y), (width - 30, y + row_height)], fill=bg
+        draw.rectangle([(0, y), (width, y + row_height)], fill=bg)
+
+        draw.line(
+            [(0, y + row_height), (width, y + row_height)],
+            fill=COLOR_BORDER, width=1,
         )
 
-        values = [
-            str(row["rank"]),
-            team_name,
-            str(row["played"]),
-            str(row["wins"]),
-            str(row["draws"]),
-            str(row["losses"]),
-            str(row["goals_for"]),
-            str(row["goals_against"]),
+        zone_color = get_zone_color(
+            competition_name, row["rank"], total_teams
+        )
+
+        if zone_color:
+            draw.rectangle(
+                [(width - zone_bar_width, y),
+                 (width, y + row_height)],
+                fill=zone_color,
+            )
+
+        x = width - zone_bar_width
+
+        col_w = col_widths["rank"]
+        x -= col_w
+        draw.text(
+            (x + col_w / 2, y + row_height / 2), str(row["rank"]),
+            font=font_cell, fill=COLOR_TEXT, anchor="mm",
+        )
+
+        col_w = col_widths["team"]
+        x -= col_w
+
+        logo_url = team.get("logo")
+        logo_img = get_team_logo(logo_url, logo_size)
+
+        logo_x = x + col_w - logo_size - 14
+        logo_y = int(y + (row_height - logo_size) / 2)
+
+        if logo_img:
+            img.paste(logo_img, (logo_x, logo_y), logo_img)
+        else:
+            draw_placeholder_logo(
+                draw, logo_x + logo_size / 2,
+                y + row_height / 2, logo_size,
+            )
+
+        draw.text(
+            (logo_x - 14, y + row_height / 2),
+            shape_arabic(team_name),
+            font=font_team, fill=COLOR_TEXT, anchor="rm",
+        )
+
+        numeric_values = [
+            ("played", str(row["played"])),
+            ("w", str(row["wins"])),
+            ("d", str(row["draws"])),
+            ("l", str(row["losses"])),
+            ("goals", f"{row['goals_against']}:{row['goals_for']}"),
             (
-                f"+{row['goal_difference']}"
-                if row["goal_difference"] > 0
-                else str(row["goal_difference"])
+                "diff",
+                (
+                    f"+{row['goal_difference']}"
+                    if row["goal_difference"] > 0
+                    else str(row["goal_difference"])
+                ),
             ),
-            str(row["points"]),
+            ("points", str(row["points"])),
         ]
 
-        x = width - 30
+        for key, value in numeric_values:
 
-        for i, value in enumerate(values):
-
-            col_w = col_widths[i]
+            col_w = col_widths[key]
             x -= col_w
 
-            is_team_col = (i == 1)
-            is_points_col = (i == len(values) - 1)
-
-            font = font_cell_bold if is_points_col else font_cell
-            color = COLOR_ACCENT if is_points_col else COLOR_TEXT
-
-            if is_team_col:
-                text = shape_arabic(value)
-                draw.text(
-                    (x + col_w - 12, y + row_height / 2), text,
-                    font=font, fill=color, anchor="rm",
-                )
-            else:
-                draw.text(
-                    (x + col_w / 2, y + row_height / 2), value,
-                    font=font, fill=color, anchor="mm",
-                )
+            draw.text(
+                (x + col_w / 2, y + row_height / 2), value,
+                font=font_cell, fill=COLOR_TEXT, anchor="mm",
+            )
 
         y += row_height
 
@@ -286,38 +423,54 @@ def telegram_send_photo(image_path, caption=""):
 
 
 # ============================================================
-# MAIN
+# ONE COMPETITION
 # ============================================================
 
-def main():
-
-    import sys
-
-    validate_environment()
-    validate_telegram_env()
-
-    competition_name = (
-        sys.argv[1] if len(sys.argv) > 1 else "Premier League"
-    )
+def publish_one(competition_name):
 
     log(f"Generating standings image for: {competition_name}")
 
     rows, teams = get_standings_data(competition_name)
 
     if not rows:
-        log("No standings data yet for this competition. Aborting.")
+        log("No standings data yet for this competition. Skipping.")
         return
 
     img = draw_table(competition_name, rows, teams)
 
-    output_path = "standings_output.png"
+    safe_name = competition_name.replace(" ", "_")
+    output_path = f"standings_{safe_name}.png"
     img.save(output_path)
 
     log(f"Image saved: {output_path}")
 
     telegram_send_photo(output_path)
 
-    log("Sent standings image to Telegram.")
+    log(f"Sent standings image for {competition_name}")
+
+
+# ============================================================
+# MAIN
+# ============================================================
+
+def main():
+
+    validate_environment()
+    validate_telegram_env()
+
+    if len(sys.argv) > 1 and sys.argv[1] != "all":
+
+        publish_one(sys.argv[1])
+
+    else:
+
+        for competition_name in COMPETITION_NAMES_AR:
+
+            try:
+                publish_one(competition_name)
+            except Exception as error:
+                log(f"ERROR {competition_name}: {error}")
+                continue
 
 
 if __name__ == "__main__":
