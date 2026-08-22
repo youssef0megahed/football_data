@@ -182,7 +182,49 @@ def get_matches_to_report():
     )
 
 
-def build_result_message(match, teams, competition_name):
+def get_players_by_ids(player_ids):
+
+    if not player_ids:
+        return {}
+
+    ids = ",".join(str(p) for p in player_ids if p)
+
+    if not ids:
+        return {}
+
+    rows = select(
+        "players",
+        {"select": "id,name,name_ar", "id": f"in.({ids})"},
+    )
+
+    return {row["id"]: row for row in rows}
+
+
+def get_goals_for_match(match_id):
+
+    return select(
+        "match_events",
+        {
+            "select": "player_id,team_id,minute,extra_time",
+            "match_id": f"eq.{match_id}",
+            "event_type": "eq.goal",
+            "order": "minute.asc",
+        },
+    )
+
+
+def format_minute(minute, extra_time):
+
+    if minute is None:
+        return ""
+
+    if extra_time:
+        return f"{minute}+{extra_time}'"
+
+    return f"{minute}'"
+
+
+def build_result_message(match, teams, competition_name, goals, players):
 
     home = teams.get(match["home_team_id"], {})
     away = teams.get(match["away_team_id"], {})
@@ -204,6 +246,26 @@ def build_result_message(match, teams, competition_name):
         f"{home_name} {match['home_score']} - "
         f"{match['away_score']} {away_name}"
     )
+
+    if goals:
+
+        lines.append("")
+        lines.append("⚽ الأهداف:")
+
+        for goal in goals:
+
+            player = players.get(goal.get("player_id"), {})
+
+            player_name = resolve_name(
+                player.get("name"), player.get("name_ar")
+            )
+
+            minute_text = format_minute(
+                goal.get("minute"), goal.get("extra_time")
+            )
+
+            if player_name:
+                lines.append(f"  {player_name} {minute_text}")
 
     return "\n".join(lines)
 
@@ -282,8 +344,18 @@ def main():
 
         try:
 
+            goals = get_goals_for_match(match["id"])
+
+            player_ids = {g.get("player_id") for g in goals}
+
+            players = get_players_by_ids(player_ids)
+
             message = build_result_message(
-                match, teams, competition_names.get(match["competition_id"])
+                match,
+                teams,
+                competition_names.get(match["competition_id"]),
+                goals,
+                players,
             )
 
             telegram_send(message)
