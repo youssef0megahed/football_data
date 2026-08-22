@@ -250,7 +250,7 @@ def build_result_message(match, teams, competition_name, goals, players):
     if goals:
 
         lines.append("")
-        lines.append("⚽ الأهداف:")
+        lines.append("الأهداف ⚽:")
 
         for goal in goals:
 
