@@ -138,47 +138,88 @@ def generate_cover_image(prompt):
 
         url = GEMINI_IMAGE_URL_TEMPLATE.format(model=model)
 
-        try:
+        max_attempts = 3
+        success = False
 
-            response = requests.post(
-                url,
-                headers={
-                    "x-goog-api-key": GEMINI_API_KEY,
-                    "Content-Type": "application/json",
-                },
-                json=payload,
-                timeout=REQUEST_TIMEOUT,
-            )
+        for attempt in range(1, max_attempts + 1):
 
-            if response.status_code != 200:
+            try:
+
+                response = requests.post(
+                    url,
+                    headers={
+                        "x-goog-api-key": GEMINI_API_KEY,
+                        "Content-Type": "application/json",
+                    },
+                    json=payload,
+                    timeout=REQUEST_TIMEOUT,
+                )
+
+                if response.status_code == 429:
+
+                    retry_after = response.headers.get(
+                        "Retry-After"
+                    )
+
+                    delay = (
+                        int(retry_after)
+                        if retry_after and retry_after.isdigit()
+                        else 5 * attempt
+                    )
+
+                    log(
+                        f"Gemini image ({model}) HTTP 429 "
+                        f"(attempt {attempt}/{max_attempts}). "
+                        f"Full response: {response.text[:500]}"
+                    )
+
+                    if attempt < max_attempts:
+                        import time
+                        time.sleep(delay)
+                        continue
+
+                    break
+
+                if response.status_code != 200:
+                    log(
+                        f"Gemini image ({model}) HTTP "
+                        f"{response.status_code}: "
+                        f"{response.text[:500]}"
+                    )
+                    break
+
+                data = response.json()
+
+                parts = (
+                    data["candidates"][0]["content"]["parts"]
+                )
+
+                for part in parts:
+
+                    inline_data = part.get(
+                        "inlineData"
+                    ) or part.get("inline_data")
+
+                    if inline_data and inline_data.get("data"):
+
+                        import base64
+
+                        return base64.b64decode(
+                            inline_data["data"]
+                        )
+
                 log(
-                    f"Gemini image ({model}) HTTP "
-                    f"{response.status_code}: {response.text[:300]}"
+                    f"Gemini image ({model}): "
+                    f"no image data in response"
                 )
-                continue
+                success = True
+                break
 
-            data = response.json()
+            except Exception as error:
+                log(f"Gemini image ({model}) failed: {error}")
+                break
 
-            parts = (
-                data["candidates"][0]["content"]["parts"]
-            )
-
-            for part in parts:
-
-                inline_data = part.get("inlineData") or part.get(
-                    "inline_data"
-                )
-
-                if inline_data and inline_data.get("data"):
-
-                    import base64
-
-                    return base64.b64decode(inline_data["data"])
-
-            log(f"Gemini image ({model}): no image data in response")
-
-        except Exception as error:
-            log(f"Gemini image ({model}) failed: {error}")
+        if not success:
             continue
 
     return None
