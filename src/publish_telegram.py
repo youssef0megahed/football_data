@@ -15,9 +15,20 @@ from lib.supabase_client import supabase_request, select
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 TIMEZONE = ZoneInfo("Africa/Cairo")
 REQUEST_TIMEOUT = 30
+
+GEMINI_IMAGE_MODELS = [
+    "gemini-3.1-flash-image",
+    "gemini-2.5-flash-image",
+]
+
+GEMINI_IMAGE_URL_TEMPLATE = (
+    "https://generativelanguage.googleapis.com/v1beta/models/"
+    "{model}:generateContent"
+)
 
 COMPETITION_NAMES_AR = {
     "Premier League": "الدوري الإنجليزي الممتاز",
@@ -67,6 +78,126 @@ def telegram_send(text):
             f"Telegram HTTP {response.status_code}: "
             f"{response.text[:500]}"
         )
+
+    return retry_call(request, "Telegram sendMessage")
+
+
+def telegram_send_photo_bytes(image_bytes, caption):
+
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendPhoto"
+
+    def request():
+
+        response = requests.post(
+            url,
+            data={"chat_id": TELEGRAM_CHAT_ID, "caption": caption},
+            files={"photo": ("cover.png", image_bytes, "image/png")},
+            timeout=REQUEST_TIMEOUT,
+        )
+
+        if response.status_code == 200:
+            data = response.json()
+            if not data.get("ok", False):
+                raise RuntimeError(str(data))
+            return data
+
+        if response.status_code in {408, 429, 500, 502, 503, 504}:
+            raise RuntimeError(
+                f"Telegram transient HTTP {response.status_code}"
+            )
+
+        raise RuntimeError(
+            f"Telegram HTTP {response.status_code}: "
+            f"{response.text[:500]}"
+        )
+
+    return retry_call(request, "Telegram sendPhoto")
+
+
+# ============================================================
+# GEMINI COVER IMAGE (تصميمي/تجريدي — من غير وجوه حقيقية)
+# ============================================================
+
+def generate_cover_image(prompt):
+    """بيرجع bytes الصورة، أو None لو التوليد فشل (عشان الرسالة
+    تتبعت نص عادي بدل ما توقف كل حاجة)."""
+
+    if not GEMINI_API_KEY:
+        return None
+
+    payload = {
+        "contents": [
+            {"role": "user", "parts": [{"text": prompt}]}
+        ],
+        "generationConfig": {
+            "responseModalities": ["IMAGE"],
+        },
+    }
+
+    for model in GEMINI_IMAGE_MODELS:
+
+        url = GEMINI_IMAGE_URL_TEMPLATE.format(model=model)
+
+        try:
+
+            response = requests.post(
+                url,
+                headers={
+                    "x-goog-api-key": GEMINI_API_KEY,
+                    "Content-Type": "application/json",
+                },
+                json=payload,
+                timeout=REQUEST_TIMEOUT,
+            )
+
+            if response.status_code != 200:
+                log(
+                    f"Gemini image ({model}) HTTP "
+                    f"{response.status_code}: {response.text[:300]}"
+                )
+                continue
+
+            data = response.json()
+
+            parts = (
+                data["candidates"][0]["content"]["parts"]
+            )
+
+            for part in parts:
+
+                inline_data = part.get("inlineData") or part.get(
+                    "inline_data"
+                )
+
+                if inline_data and inline_data.get("data"):
+
+                    import base64
+
+                    return base64.b64decode(inline_data["data"])
+
+            log(f"Gemini image ({model}): no image data in response")
+
+        except Exception as error:
+            log(f"Gemini image ({model}) failed: {error}")
+            continue
+
+    return None
+
+
+def build_cover_prompt(home_name_en, away_name_en, competition_name):
+    """برومبت لصورة تصميمية مجردة (مش صورة واقعية للاعبين حقيقيين)،
+    بهوية بصرية موحدة لصفحتنا."""
+
+    return (
+        "Create a bold, modern sports-news cover graphic for a "
+        "football (soccer) match announcement. Abstract, stylized "
+        "illustration only — absolutely no real people, no faces, "
+        "no recognizable athlete likenesses, no logos or text. "
+        f"Theme: {home_name_en} vs {away_name_en}, {competition_name}. "
+        "Dynamic abstract player silhouettes, dramatic stadium "
+        "lighting, high-contrast professional sports-media "
+        "aesthetic, cinematic color grading."
+    )
 
     return retry_call(request, "Telegram sendMessage")
 
@@ -327,7 +458,20 @@ def main():
                 match, teams, competition_names.get(match["competition_id"])
             )
 
-            telegram_send(message)
+            home = teams.get(match["home_team_id"], {})
+            away = teams.get(match["away_team_id"], {})
+
+            prompt = build_cover_prompt(
+                home.get("name", ""), away.get("name", ""),
+                competition_names.get(match["competition_id"], ""),
+            )
+
+            image_bytes = generate_cover_image(prompt)
+
+            if image_bytes:
+                telegram_send_photo_bytes(image_bytes, message)
+            else:
+                telegram_send(message)
 
             supabase_request(
                 "PATCH",
@@ -377,7 +521,20 @@ def main():
                 players,
             )
 
-            telegram_send(message)
+            home = teams.get(match["home_team_id"], {})
+            away = teams.get(match["away_team_id"], {})
+
+            prompt = build_cover_prompt(
+                home.get("name", ""), away.get("name", ""),
+                competition_names.get(match["competition_id"], ""),
+            )
+
+            image_bytes = generate_cover_image(prompt)
+
+            if image_bytes:
+                telegram_send_photo_bytes(image_bytes, message)
+            else:
+                telegram_send(message)
 
             supabase_request(
                 "PATCH",
