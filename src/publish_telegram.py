@@ -265,7 +265,7 @@ def build_result_message(match, teams, competition_name, goals, players):
             )
 
             if player_name:
-                lines.append(f"  {player_name} {minute_text}")
+                lines.append(f" ⚽ {minute_text} {player_name} ")
 
     return "\n".join(lines)
 
