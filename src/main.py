@@ -2,6 +2,7 @@ from lib.log import log
 
 import sync_fixtures
 import sync_match_details
+import sync_standings
 
 
 def main():
@@ -19,6 +20,11 @@ def main():
         sync_match_details.main()
     except Exception as error:
         log(f"FATAL in sync_match_details: {error}")
+
+    try:
+        sync_standings.main()
+    except Exception as error:
+        log(f"FATAL in sync_standings: {error}")
 
     log("##################################################")
     log("FOOTBALL_DATA SYNC RUN END")
