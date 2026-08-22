@@ -9,14 +9,14 @@ from lib.supabase_client import upsert, select
 
 def compute_standings(season_id):
 
-    matches = select(
+    all_matches = select(
         "matches",
         {
             "select": (
-                "home_team_id,away_team_id,home_score,away_score"
+                "home_team_id,away_team_id,home_score,"
+                "away_score,status"
             ),
             "season_id": f"eq.{season_id}",
-            "status": "eq.FINISHED",
         },
     )
 
@@ -37,7 +37,21 @@ def compute_standings(season_id):
 
         return table[team_id]
 
-    for match in matches:
+    # الخطوة 1: نضمن ظهور كل فريق ليه ماتش في الموسم ده، حتى لو
+    # لسه ما لعبش (هيبان بصفوف صفر لحد ما يلعب).
+    for match in all_matches:
+
+        if match.get("home_team_id"):
+            ensure_team(match["home_team_id"])
+
+        if match.get("away_team_id"):
+            ensure_team(match["away_team_id"])
+
+    # الخطوة 2: نجمع الإحصائيات بس من المباريات المنتهية فعليًا.
+    for match in all_matches:
+
+        if match.get("status") != "FINISHED":
+            continue
 
         home_id = match.get("home_team_id")
         away_id = match.get("away_team_id")
