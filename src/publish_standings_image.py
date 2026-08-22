@@ -477,7 +477,25 @@ def publish_one(competition_name):
 
     log(f"Image saved: {output_path}")
 
-    telegram_send_photo(output_path)
+    competition_ar = COMPETITION_NAMES_AR.get(
+        competition_name, competition_name
+    )
+
+    leader = rows[0]
+    leader_team = teams.get(leader["team_id"], {})
+    leader_name = (
+        leader_team.get("name_ar") or leader_team.get("name") or "?"
+    )
+
+    caption_lines = [
+        f"📊 جدول ترتيب {competition_ar}",
+        "",
+        f"🥇 الصدارة: {leader_name} ({leader['points']} نقطة)",
+        "",
+        "#كرة_القدم #الترتيب",
+    ]
+
+    telegram_send_photo(output_path, caption="\n".join(caption_lines))
 
     log(f"Sent standings image for {competition_name}")
 
