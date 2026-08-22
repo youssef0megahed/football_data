@@ -2,8 +2,6 @@ import os
 import io
 import sys
 import requests
-import arabic_reshaper
-from bidi.algorithm import get_display
 from PIL import Image, ImageDraw, ImageFont
 
 from lib.config import validate_environment
@@ -74,14 +72,49 @@ def validate_telegram_env():
 
 
 # ============================================================
-# ARABIC TEXT SHAPING
+# ARABIC TEXT DRAWING
 # ============================================================
+#
+# Pillow الحديث بيدعم تشكيل واتجاه RTL تلقائي (عن طريق raqm) لو
+# استخدمنا direction="rtl" مباشرة على النص الخام. لو النسخة
+# المستخدمة مش فيها raqm، بنرجع لتشكيل يدوي (reshape + bidi)
+# كـ fallback بس، عشان منعالجش النص مرتين ونكسّره.
 
-def shape_arabic(text):
+_manual_fallback_libs = None
 
-    reshaped = arabic_reshaper.reshape(str(text))
 
-    return get_display(reshaped)
+def _get_manual_fallback():
+
+    global _manual_fallback_libs
+
+    if _manual_fallback_libs is None:
+
+        import arabic_reshaper
+        from bidi.algorithm import get_display
+
+        _manual_fallback_libs = (arabic_reshaper, get_display)
+
+    return _manual_fallback_libs
+
+
+def draw_arabic_text(draw, xy, text, font, fill, anchor="mm"):
+
+    text = str(text)
+
+    try:
+
+        draw.text(
+            xy, text, font=font, fill=fill,
+            anchor=anchor, direction="rtl",
+        )
+
+    except Exception:
+
+        arabic_reshaper, get_display = _get_manual_fallback()
+
+        shaped = get_display(arabic_reshaper.reshape(text))
+
+        draw.text(xy, shaped, font=font, fill=fill, anchor=anchor)
 
 
 # ============================================================
@@ -253,15 +286,15 @@ def draw_table(competition_name, rows, teams):
 
     draw.rectangle([(0, 0), (width, banner_height)], fill=banner_color)
 
-    draw.text(
-        (width / 2, banner_height * 0.42),
-        shape_arabic(competition_ar),
+    draw_arabic_text(
+        draw, (width / 2, banner_height * 0.42),
+        competition_ar,
         font=font_title, fill=COLOR_HEADER_TEXT, anchor="mm",
     )
 
-    draw.text(
-        (width / 2, banner_height * 0.75),
-        shape_arabic("جدول الترتيب"),
+    draw_arabic_text(
+        draw, (width / 2, banner_height * 0.75),
+        "جدول الترتيب",
         font=font_subtitle, fill=(230, 230, 235), anchor="mm",
     )
 
@@ -285,9 +318,9 @@ def draw_table(competition_name, rows, teams):
         col_w = col_widths[key]
         x -= col_w
 
-        draw.text(
-            (x + col_w / 2, y + header_row_height / 2),
-            shape_arabic(label),
+        draw_arabic_text(
+            draw, (x + col_w / 2, y + header_row_height / 2),
+            label,
             font=font_header, fill=COLOR_TEXT, anchor="mm",
         )
 
@@ -346,9 +379,9 @@ def draw_table(competition_name, rows, teams):
                 y + row_height / 2, logo_size,
             )
 
-        draw.text(
-            (logo_x - 14, y + row_height / 2),
-            shape_arabic(team_name),
+        draw_arabic_text(
+            draw, (logo_x - 14, y + row_height / 2),
+            team_name,
             font=font_team, fill=COLOR_TEXT, anchor="rm",
         )
 
