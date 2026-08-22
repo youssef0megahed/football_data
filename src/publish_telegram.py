@@ -149,7 +149,7 @@ def build_schedule_message(match, teams, competition_name):
     if kickoff.tzinfo is not None:
         kickoff = kickoff.astimezone(TIMEZONE)
 
-    lines = ["⌛ مباراة اليوم", ""]
+    lines = ["📅 مباراة اليوم", ""]
 
     if competition_ar:
         lines.append(f"🏆 {competition_ar}")
@@ -157,7 +157,7 @@ def build_schedule_message(match, teams, competition_name):
 
     lines.append(f"⚽ {home_name} 🆚 {away_name}")
     lines.append("")
-    lines.append(f"🔔 {kickoff.date().isoformat()}")
+    lines.append(f"📆 {kickoff.date().isoformat()}")
     lines.append(f"⏰ {format_arabic_time(kickoff)} بتوقيت القاهرة")
 
     return "\n".join(lines)
@@ -249,23 +249,42 @@ def build_result_message(match, teams, competition_name, goals, players):
 
     if goals:
 
-        lines.append("")
-        lines.append("الأهداف ⚽:")
+        home_team_id = match["home_team_id"]
+        away_team_id = match["away_team_id"]
 
-        for goal in goals:
+        home_goals = [g for g in goals if g.get("team_id") == home_team_id]
+        away_goals = [g for g in goals if g.get("team_id") == away_team_id]
 
-            player = players.get(goal.get("player_id"), {})
+        def format_goal_lines(team_goals):
 
-            player_name = resolve_name(
-                player.get("name"), player.get("name_ar")
-            )
+            output = []
 
-            minute_text = format_minute(
-                goal.get("minute"), goal.get("extra_time")
-            )
+            for goal in team_goals:
 
-            if player_name:
-                lines.append(f" ⚽ {minute_text} {player_name} ")
+                player = players.get(goal.get("player_id"), {})
+
+                player_name = resolve_name(
+                    player.get("name"), player.get("name_ar")
+                )
+
+                minute_text = format_minute(
+                    goal.get("minute"), goal.get("extra_time")
+                )
+
+                if player_name:
+                    output.append(f"  ⚽ {player_name} {minute_text}")
+
+            return output
+
+        if home_goals:
+            lines.append("")
+            lines.append(f"أهداف {home_name}:")
+            lines.extend(format_goal_lines(home_goals))
+
+        if away_goals:
+            lines.append("")
+            lines.append(f"أهداف {away_name}:")
+            lines.extend(format_goal_lines(away_goals))
 
     return "\n".join(lines)
 
