@@ -20,7 +20,7 @@ TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
 REQUEST_TIMEOUT = 30
 
-TOP_N = 10
+TOP_N = 20
 
 
 def validate_telegram_env():
@@ -402,4 +402,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-  
