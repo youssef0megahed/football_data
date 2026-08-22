@@ -1,0 +1,58 @@
+name: نشر جدول الترتيب (صورة)
+
+on:
+  workflow_dispatch:
+    inputs:
+      competition:
+        description: "اسم البطولة بالظبط زي ما مسجلة في القاعدة"
+        required: false
+        default: "Premier League"
+        type: choice
+        options:
+          - "Premier League"
+          - "La Liga"
+          - "Serie A"
+          - "Bundesliga"
+          - "Ligue 1"
+
+jobs:
+  publish-standings-image:
+    runs-on: ubuntu-latest
+
+    timeout-minutes: 5
+
+    defaults:
+      run:
+        working-directory: src
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests pillow arabic-reshaper python-bidi
+
+      - name: تحميل خط Cairo العربي
+        run: |
+          mkdir -p assets
+          curl -sSL -o assets/Cairo-Regular.ttf \
+            "https://github.com/Gue3bara/Cairo/raw/7030db78cca3a7a7d94f9071b3f35dad7447ae71/fonts/ttf/Cairo-Regular.ttf"
+          curl -sSL -o assets/Cairo-SemiBold.ttf \
+            "https://github.com/Gue3bara/Cairo/raw/7030db78cca3a7a7d94f9071b3f35dad7447ae71/fonts/ttf/Cairo-SemiBold.ttf"
+          ls -la assets/
+
+      - name: توليد ونشر صورة الترتيب
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          python publish_standings_image.py "${{ github.event.inputs.competition }}"
