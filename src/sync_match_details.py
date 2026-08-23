@@ -108,6 +108,10 @@ def upsert_players_get_ids(athletes, team_db_id):
             "source_id": source_id,
             "name": name,
             "current_team_id": team_db_id,
+            "photo": (
+                "https://a.espncdn.com/i/headshots/soccer/"
+                f"players/full/{source_id}.png"
+            ),
         })
 
     if not records:
@@ -414,6 +418,16 @@ def classify_event_type(detail):
     if any(marker in type_slug for marker in ignored_markers):
         return "ignored"
 
+    # ESPN بيحط علم scoringPlay = false للأهداف اللي اتلغت
+    # (بالفيديو/التسلل) رغم إن نص الحدث لسه فيه كلمة "goal".
+    # لو العلم موجود صراحة وقيمته False، الهدف ملغي فعليًا.
+    scoring_play = detail.get("scoringPlay")
+
+    is_goal_text = "goal" in combined
+
+    if is_goal_text and scoring_play is False:
+        return "ignored"
+
     if "own goal" in combined:
         return "goal"
     if "goal" in combined and "own" not in combined:
@@ -565,17 +579,39 @@ def get_matches_needing_detail_sync():
         {
             "select": (
                 "id,source_id,status,competition_id,"
-                "home_team_id,away_team_id"
+                "home_team_id,away_team_id,kickoff_at"
             ),
             "kickoff_at": [f"gte.{start}", f"lt.{end}"],
         },
     )
 
-    # نتجاهل الماتشات المنتهية اللي اتعملها تفاصيل خلاص، عشان
-    # منضربش ESPN من غير داعي لحاجة خلصت وما هتتغيرش.
-    finished_ids = [
-        str(r["id"]) for r in rows if r["status"] == "FINISHED"
-    ]
+    # ماتش لسه لقريب ما خلص (أقل من 5 ساعات من الكيك أوف) بنفضل
+    # نسحبه تاني حتى لو عنده إحصائيات خلاص — عشان ESPN أحيانًا
+    # بيتأخر يكمّل قائمة الأحداث (زي هدف متأخر جدًا) عن تحديث
+    # النتيجة الرسمية. بعد الفترة دي، الداتا بتكون استقرت فعلاً
+    # ومفيش داعي نضرب ESPN تاني لحاجة خلصت من كام يوم.
+    settle_buffer = timedelta(hours=5)
+    now = datetime.now(TIMEZONE)
+
+    finished_ids = []
+
+    for r in rows:
+
+        if r["status"] != "FINISHED":
+            continue
+
+        kickoff_at = r.get("kickoff_at")
+
+        if not kickoff_at:
+            continue
+
+        kickoff_dt = datetime.fromisoformat(kickoff_at)
+
+        if kickoff_dt.tzinfo is not None:
+            kickoff_dt = kickoff_dt.astimezone(TIMEZONE)
+
+        if now - kickoff_dt > settle_buffer:
+            finished_ids.append(str(r["id"]))
 
     already_has_stats = set()
 
