@@ -20,15 +20,6 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 TIMEZONE = ZoneInfo("Africa/Cairo")
 REQUEST_TIMEOUT = 30
 
-GEMINI_IMAGE_MODELS = [
-    "gemini-3.1-flash-image",
-    "gemini-2.5-flash-image",
-]
-
-GEMINI_IMAGE_URL_TEMPLATE = (
-    "https://generativelanguage.googleapis.com/v1beta/models/"
-    "{model}:generateContent"
-)
 
 COMPETITION_NAMES_AR = {
     "Premier League": "الدوري الإنجليزي الممتاز",
@@ -113,134 +104,6 @@ def telegram_send_photo_bytes(image_bytes, caption):
 
     return retry_call(request, "Telegram sendPhoto")
 
-
-# ============================================================
-# GEMINI COVER IMAGE (تصميمي/تجريدي — من غير وجوه حقيقية)
-# ============================================================
-
-def generate_cover_image(prompt):
-    """بيرجع bytes الصورة، أو None لو التوليد فشل (عشان الرسالة
-    تتبعت نص عادي بدل ما توقف كل حاجة)."""
-
-    if not GEMINI_API_KEY:
-        return None
-
-    payload = {
-        "contents": [
-            {"role": "user", "parts": [{"text": prompt}]}
-        ],
-        "generationConfig": {
-            "responseModalities": ["IMAGE"],
-        },
-    }
-
-    for model in GEMINI_IMAGE_MODELS:
-
-        url = GEMINI_IMAGE_URL_TEMPLATE.format(model=model)
-
-        max_attempts = 3
-        success = False
-
-        for attempt in range(1, max_attempts + 1):
-
-            try:
-
-                response = requests.post(
-                    url,
-                    headers={
-                        "x-goog-api-key": GEMINI_API_KEY,
-                        "Content-Type": "application/json",
-                    },
-                    json=payload,
-                    timeout=REQUEST_TIMEOUT,
-                )
-
-                if response.status_code == 429:
-
-                    retry_after = response.headers.get(
-                        "Retry-After"
-                    )
-
-                    delay = (
-                        int(retry_after)
-                        if retry_after and retry_after.isdigit()
-                        else 5 * attempt
-                    )
-
-                    log(
-                        f"Gemini image ({model}) HTTP 429 "
-                        f"(attempt {attempt}/{max_attempts}). "
-                        f"Full response: {response.text[:500]}"
-                    )
-
-                    if attempt < max_attempts:
-                        import time
-                        time.sleep(delay)
-                        continue
-
-                    break
-
-                if response.status_code != 200:
-                    log(
-                        f"Gemini image ({model}) HTTP "
-                        f"{response.status_code}: "
-                        f"{response.text[:500]}"
-                    )
-                    break
-
-                data = response.json()
-
-                parts = (
-                    data["candidates"][0]["content"]["parts"]
-                )
-
-                for part in parts:
-
-                    inline_data = part.get(
-                        "inlineData"
-                    ) or part.get("inline_data")
-
-                    if inline_data and inline_data.get("data"):
-
-                        import base64
-
-                        return base64.b64decode(
-                            inline_data["data"]
-                        )
-
-                log(
-                    f"Gemini image ({model}): "
-                    f"no image data in response"
-                )
-                success = True
-                break
-
-            except Exception as error:
-                log(f"Gemini image ({model}) failed: {error}")
-                break
-
-        if not success:
-            continue
-
-    return None
-
-
-def build_cover_prompt(home_name_en, away_name_en, competition_name):
-    """برومبت لصورة تصميمية مجردة (مش صورة واقعية للاعبين حقيقيين)،
-    بهوية بصرية موحدة لصفحتنا."""
-
-    return (
-        "Create a bold, modern sports-news cover graphic for a "
-        "football (soccer) match announcement. Abstract, stylized "
-        "illustration only — absolutely no real people, no faces, "
-        "no recognizable athlete likenesses, no logos or text. "
-        f"Theme: {home_name_en} vs {away_name_en}, {competition_name}. "
-        "Dynamic abstract player silhouettes, dramatic stadium "
-        "lighting, high-contrast professional sports-media "
-        "aesthetic, cinematic color grading."
-    )
-
-    return retry_call(request, "Telegram sendMessage")
 
 
 # ============================================================
@@ -465,19 +328,14 @@ def build_result_message(match, teams, competition_name, goals, players):
 # MAIN
 # ============================================================
 
-def main():
-
-    validate_environment()
-    validate_telegram_env()
+def publish_schedules():
 
     log("==================================================")
-    log("PUBLISH TELEGRAM (schedules + results) START")
+    log("PUBLISH SCHEDULES START")
     log("==================================================")
 
     competitions = select("competitions", {"select": "id,name"})
     competition_names = {c["id"]: c["name"] for c in competitions}
-
-    # --- Schedules ---
 
     to_announce = get_matches_to_announce()
 
@@ -530,7 +388,19 @@ def main():
             log(f"ERROR schedule match={match['id']}: {error}")
             continue
 
-    # --- Results ---
+    log("==================================================")
+    log("PUBLISH SCHEDULES END")
+    log("==================================================")
+
+
+def publish_results():
+
+    log("==================================================")
+    log("PUBLISH RESULTS START")
+    log("==================================================")
+
+    competitions = select("competitions", {"select": "id,name"})
+    competition_names = {c["id"]: c["name"] for c in competitions}
 
     to_report = get_matches_to_report()
 
@@ -594,8 +464,24 @@ def main():
             continue
 
     log("==================================================")
-    log("PUBLISH TELEGRAM END")
+    log("PUBLISH RESULTS END")
     log("==================================================")
+
+
+def main():
+
+    import sys
+
+    validate_environment()
+    validate_telegram_env()
+
+    mode = sys.argv[1] if len(sys.argv) > 1 else "both"
+
+    if mode in ("schedule", "both"):
+        publish_schedules()
+
+    if mode in ("results", "both"):
+        publish_results()
 
 
 if __name__ == "__main__":
