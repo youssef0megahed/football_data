@@ -1,4 +1,4 @@
-name: نشر المواعيد والنتائج (تليجرام)
+name: نشر النتائج (تليجرام)
 
 on:
   schedule:
@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  publish-telegram:
+  publish-results:
     runs-on: ubuntu-latest
 
     timeout-minutes: 5
@@ -30,7 +30,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install requests
 
-      - name: نشر المواعيد والنتائج
+      - name: نشر النتائج
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
@@ -38,4 +38,4 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
-          python publish_telegram.py
+          python publish_telegram.py results
