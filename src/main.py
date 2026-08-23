@@ -2,6 +2,7 @@ from lib.log import log
 
 import sync_fixtures
 import sync_match_details
+import reconcile_goals
 import sync_standings
 
 
@@ -22,6 +23,11 @@ def main():
         log(f"FATAL in sync_match_details: {error}")
 
     try:
+        reconcile_goals.main()
+    except Exception as error:
+        log(f"FATAL in reconcile_goals: {error}")
+
+    try:
         sync_standings.main()
     except Exception as error:
         log(f"FATAL in sync_standings: {error}")
@@ -33,3 +39,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+    
