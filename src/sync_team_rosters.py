@@ -133,6 +133,10 @@ def sync_team_players(team_db_id, team_source_id, league_slug):
             "jersey_number": str(jersey) if jersey else None,
             "nationality": nationality,
             "current_team_id": team_db_id,
+            "photo": (
+                "https://a.espncdn.com/i/headshots/soccer/"
+                f"players/full/{source_id}.png"
+            ),
         })
 
     if records:
@@ -186,3 +190,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+        
