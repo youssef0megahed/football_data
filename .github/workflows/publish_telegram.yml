@@ -28,7 +28,15 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          if [ -f requirements.txt ]; then pip install -r requirements.txt; else pip install requests Pillow; fi
+          pip install requests pillow arabic-reshaper python-bidi
+
+      - name: تحميل خط Cairo العربي
+        run: |
+          mkdir -p assets
+          curl -sSL -o assets/Cairo-Regular.ttf \
+            "https://github.com/Gue3bara/Cairo/raw/7030db78cca3a7a7d94f9071b3f35dad7447ae71/fonts/ttf/Cairo-Regular.ttf"
+          curl -sSL -o assets/Cairo-SemiBold.ttf \
+            "https://github.com/Gue3bara/Cairo/raw/7030db78cca3a7a7d94f9071b3f35dad7447ae71/fonts/ttf/Cairo-SemiBold.ttf"
 
       - name: نشر النتائج
         env:
@@ -36,7 +44,5 @@ jobs:
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          PYTHONPATH: .
         run: |
           python publish_telegram.py results
