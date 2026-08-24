@@ -1,5 +1,7 @@
 import os
+import io
 import requests
+from PIL import Image, ImageDraw, ImageFont
 
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -7,6 +9,10 @@ from zoneinfo import ZoneInfo
 from lib.config import validate_environment
 from lib.log import log, retry_call
 from lib.supabase_client import supabase_request, select
+from lib.render_utils import (
+    draw_arabic_text, FONT_REGULAR_PATH, FONT_BOLD_PATH,
+    COMPETITION_BANNER_COLOR,
+)
 
 
 # ============================================================
@@ -15,20 +21,9 @@ from lib.supabase_client import supabase_request, select
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 TIMEZONE = ZoneInfo("Africa/Cairo")
 REQUEST_TIMEOUT = 30
-
-GEMINI_IMAGE_MODELS = [
-    "gemini-3.1-flash-image",
-    "gemini-2.5-flash-image",
-]
-
-GEMINI_IMAGE_URL_TEMPLATE = (
-    "https://generativelanguage.googleapis.com/v1beta/models/"
-    "{model}:generateContent"
-)
 
 COMPETITION_NAMES_AR = {
     "Premier League": "الدوري الإنجليزي الممتاز",
@@ -82,6 +77,93 @@ def telegram_send(text):
     return retry_call(request, "Telegram sendMessage")
 
 
+# ============================================================
+# صورة النص (بديل صور Gemini — بترسم نفس نص الرسالة على كارت)
+# ============================================================
+
+COLOR_CARD_BG = (16, 19, 28)
+COLOR_CARD_TEXT = (240, 240, 245)
+COLOR_CARD_ACCENT = (86, 180, 233)
+
+
+def draw_message_card(message_text, competition_name):
+
+    lines = [line.strip() for line in message_text.split("\n")]
+
+    width = 800
+
+    line_height = 62
+    blank_gap = 26
+    padding_top = 50
+    padding_bottom = 50
+
+    content_height = 0
+
+    for line in lines:
+        content_height += line_height if line else blank_gap
+
+    height = padding_top + padding_bottom + content_height
+
+    banner_color = COMPETITION_BANNER_COLOR.get(
+        competition_name, (40, 46, 66)
+    )
+
+    img = Image.new("RGB", (width, height), COLOR_CARD_BG)
+    draw = ImageDraw.Draw(img)
+
+    draw.rectangle([(0, 0), (width, 8)], fill=banner_color)
+
+    font_title = ImageFont.truetype(FONT_BOLD_PATH, 36)
+    font_score = ImageFont.truetype(FONT_BOLD_PATH, 32)
+    font_normal = ImageFont.truetype(FONT_REGULAR_PATH, 24)
+    font_small = ImageFont.truetype(FONT_REGULAR_PATH, 20)
+
+    y = padding_top
+
+    for index, line in enumerate(lines):
+
+        if not line:
+            y += blank_gap
+            continue
+
+        is_title = (index == 0)
+        is_score_line = "🆚" in line or (
+            " - " in line and any(ch.isdigit() for ch in line)
+        )
+        is_sub_header = line.startswith("أهداف") or line.startswith(
+            "🏆"
+        )
+
+        if is_title:
+            font, color = font_title, (255, 255, 255)
+        elif is_score_line:
+            font, color = font_score, COLOR_CARD_ACCENT
+        elif is_sub_header:
+            font, color = font_normal, (200, 205, 220)
+        elif line.startswith("#"):
+            font, color = font_small, (140, 145, 165)
+        else:
+            font, color = font_normal, COLOR_CARD_TEXT
+
+        draw_arabic_text(
+            draw, (width / 2, y + line_height / 2), line,
+            font=font, fill=color, anchor="mm",
+        )
+
+        y += line_height
+
+    return img
+
+
+def telegram_send_photo_bytes_from_image(img, caption=""):
+
+    buffer = io.BytesIO()
+    img.save(buffer, format="PNG")
+    buffer.seek(0)
+
+    return telegram_send_photo_bytes(buffer.getvalue(), caption)
+
+
 def telegram_send_photo_bytes(image_bytes, caption):
 
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendPhoto"
@@ -112,135 +194,6 @@ def telegram_send_photo_bytes(image_bytes, caption):
         )
 
     return retry_call(request, "Telegram sendPhoto")
-
-
-# ============================================================
-# GEMINI COVER IMAGE (تصميمي/تجريدي — من غير وجوه حقيقية)
-# ============================================================
-
-def generate_cover_image(prompt):
-    """بيرجع bytes الصورة، أو None لو التوليد فشل (عشان الرسالة
-    تتبعت نص عادي بدل ما توقف كل حاجة)."""
-
-    if not GEMINI_API_KEY:
-        return None
-
-    payload = {
-        "contents": [
-            {"role": "user", "parts": [{"text": prompt}]}
-        ],
-        "generationConfig": {
-            "responseModalities": ["IMAGE"],
-        },
-    }
-
-    for model in GEMINI_IMAGE_MODELS:
-
-        url = GEMINI_IMAGE_URL_TEMPLATE.format(model=model)
-
-        max_attempts = 3
-        success = False
-
-        for attempt in range(1, max_attempts + 1):
-
-            try:
-
-                response = requests.post(
-                    url,
-                    headers={
-                        "x-goog-api-key": GEMINI_API_KEY,
-                        "Content-Type": "application/json",
-                    },
-                    json=payload,
-                    timeout=REQUEST_TIMEOUT,
-                )
-
-                if response.status_code == 429:
-
-                    retry_after = response.headers.get(
-                        "Retry-After"
-                    )
-
-                    delay = (
-                        int(retry_after)
-                        if retry_after and retry_after.isdigit()
-                        else 5 * attempt
-                    )
-
-                    log(
-                        f"Gemini image ({model}) HTTP 429 "
-                        f"(attempt {attempt}/{max_attempts}). "
-                        f"Full response: {response.text[:500]}"
-                    )
-
-                    if attempt < max_attempts:
-                        import time
-                        time.sleep(delay)
-                        continue
-
-                    break
-
-                if response.status_code != 200:
-                    log(
-                        f"Gemini image ({model}) HTTP "
-                        f"{response.status_code}: "
-                        f"{response.text[:500]}"
-                    )
-                    break
-
-                data = response.json()
-
-                parts = (
-                    data["candidates"][0]["content"]["parts"]
-                )
-
-                for part in parts:
-
-                    inline_data = part.get(
-                        "inlineData"
-                    ) or part.get("inline_data")
-
-                    if inline_data and inline_data.get("data"):
-
-                        import base64
-
-                        return base64.b64decode(
-                            inline_data["data"]
-                        )
-
-                log(
-                    f"Gemini image ({model}): "
-                    f"no image data in response"
-                )
-                success = True
-                break
-
-            except Exception as error:
-                log(f"Gemini image ({model}) failed: {error}")
-                break
-
-        if not success:
-            continue
-
-    return None
-
-
-def build_cover_prompt(home_name_en, away_name_en, competition_name):
-    """برومبت لصورة تصميمية مجردة (مش صورة واقعية للاعبين حقيقيين)،
-    بهوية بصرية موحدة لصفحتنا."""
-
-    return (
-        "Create a bold, modern sports-news cover graphic for a "
-        "football (soccer) match announcement. Abstract, stylized "
-        "illustration only — absolutely no real people, no faces, "
-        "no recognizable athlete likenesses, no logos or text. "
-        f"Theme: {home_name_en} vs {away_name_en}, {competition_name}. "
-        "Dynamic abstract player silhouettes, dramatic stadium "
-        "lighting, high-contrast professional sports-media "
-        "aesthetic, cinematic color grading."
-    )
-
-    return retry_call(request, "Telegram sendMessage")
 
 
 # ============================================================
@@ -494,20 +447,13 @@ def publish_schedules():
                 match, teams, competition_names.get(match["competition_id"])
             )
 
-            home = teams.get(match["home_team_id"], {})
-            away = teams.get(match["away_team_id"], {})
-
-            prompt = build_cover_prompt(
-                home.get("name", ""), away.get("name", ""),
-                competition_names.get(match["competition_id"], ""),
+            competition_name = competition_names.get(
+                match["competition_id"], ""
             )
 
-            image_bytes = generate_cover_image(prompt)
+            card = draw_message_card(message, competition_name)
 
-            if image_bytes:
-                telegram_send_photo_bytes(image_bytes, message)
-            else:
-                telegram_send(message)
+            telegram_send_photo_bytes_from_image(card)
 
             supabase_request(
                 "PATCH",
@@ -569,20 +515,13 @@ def publish_results():
                 players,
             )
 
-            home = teams.get(match["home_team_id"], {})
-            away = teams.get(match["away_team_id"], {})
-
-            prompt = build_cover_prompt(
-                home.get("name", ""), away.get("name", ""),
-                competition_names.get(match["competition_id"], ""),
+            competition_name = competition_names.get(
+                match["competition_id"], ""
             )
 
-            image_bytes = generate_cover_image(prompt)
+            card = draw_message_card(message, competition_name)
 
-            if image_bytes:
-                telegram_send_photo_bytes(image_bytes, message)
-            else:
-                telegram_send(message)
+            telegram_send_photo_bytes_from_image(card)
 
             supabase_request(
                 "PATCH",
@@ -623,3 +562,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+    
