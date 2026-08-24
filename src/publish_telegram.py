@@ -10,8 +10,9 @@ from lib.config import validate_environment
 from lib.log import log, retry_call
 from lib.supabase_client import supabase_request, select
 from lib.render_utils import (
-    draw_arabic_text, FONT_REGULAR_PATH, FONT_BOLD_PATH,
-    COMPETITION_BANNER_COLOR,
+    draw_arabic_text, get_logo, draw_placeholder_circle,
+    FONT_REGULAR_PATH, FONT_BOLD_PATH,
+    COMPETITION_BANNER_COLOR, COMPETITION_NAMES_AR,
 )
 
 
@@ -24,14 +25,6 @@ TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
 TIMEZONE = ZoneInfo("Africa/Cairo")
 REQUEST_TIMEOUT = 30
-
-COMPETITION_NAMES_AR = {
-    "Premier League": "الدوري الإنجليزي الممتاز",
-    "La Liga": "الدوري الإسباني",
-    "Serie A": "الدوري الإيطالي",
-    "Bundesliga": "الدوري الألماني",
-    "Ligue 1": "الدوري الفرنسي",
-}
 
 
 def validate_telegram_env():
@@ -86,61 +79,152 @@ COLOR_CARD_TEXT = (240, 240, 245)
 COLOR_CARD_ACCENT = (86, 180, 233)
 
 
-def draw_message_card(message_text, competition_name):
+def draw_match_card(
+    competition_name, home_team, away_team, center_text, extra_lines
+):
 
-    lines = [line.strip() for line in message_text.split("\n")]
-
-    width = 800
-
-    line_height = 62
-    blank_gap = 26
-    padding_top = 50
-    padding_bottom = 50
-
-    content_height = 0
-
-    for line in lines:
-        content_height += line_height if line else blank_gap
-
-    height = padding_top + padding_bottom + content_height
+    competition_ar = COMPETITION_NAMES_AR.get(
+        competition_name, competition_name
+    )
 
     banner_color = COMPETITION_BANNER_COLOR.get(
         competition_name, (40, 46, 66)
     )
 
+    width = 900
+    banner_height = 100
+    team_row_height = 190
+    logo_size = 100
+
+    line_height = 50
+    blank_gap = 22
+    padding_top = 34
+    padding_bottom = 40
+
+    content_height = 0
+
+    for line in extra_lines:
+        content_height += line_height if line.strip() else blank_gap
+
+    height = (
+        banner_height + team_row_height
+        + padding_top + padding_bottom + content_height
+    )
+
     img = Image.new("RGB", (width, height), COLOR_CARD_BG)
     draw = ImageDraw.Draw(img)
 
-    draw.rectangle([(0, 0), (width, 8)], fill=banner_color)
+    # --- بانر البطولة ---
+    draw.rectangle([(0, 0), (width, banner_height)], fill=banner_color)
 
-    font_title = ImageFont.truetype(FONT_BOLD_PATH, 36)
-    font_score = ImageFont.truetype(FONT_BOLD_PATH, 32)
+    font_banner = ImageFont.truetype(FONT_BOLD_PATH, 28)
+
+    draw_arabic_text(
+        draw, (width / 2, banner_height / 2), f"🏆 {competition_ar}",
+        font=font_banner, fill=(255, 255, 255), anchor="mm",
+    )
+
+    # --- صف الفريقين (شعار + اسم)، المضيف يمين والضيف شمال ---
+    y_logo = banner_height + (team_row_height - logo_size) // 2 - 12
+
+    home_cx = width * 0.76
+    away_cx = width * 0.24
+
+    home_logo = get_logo(home_team.get("logo"), logo_size)
+    away_logo = get_logo(away_team.get("logo"), logo_size)
+
+    if home_logo:
+        img.paste(
+            home_logo,
+            (int(home_cx - logo_size / 2), y_logo), home_logo,
+        )
+    else:
+        draw_placeholder_circle(
+            draw, home_cx, y_logo + logo_size / 2, logo_size
+        )
+
+    if away_logo:
+        img.paste(
+            away_logo,
+            (int(away_cx - logo_size / 2), y_logo), away_logo,
+        )
+    else:
+        draw_placeholder_circle(
+            draw, away_cx, y_logo + logo_size / 2, logo_size
+        )
+
+    font_team_name = ImageFont.truetype(FONT_BOLD_PATH, 22)
+
+    home_name = (
+        home_team.get("name_ar") or home_team.get("name") or "?"
+    )
+    away_name = (
+        away_team.get("name_ar") or away_team.get("name") or "?"
+    )
+
+    draw_arabic_text(
+        draw, (home_cx, y_logo + logo_size + 24), home_name,
+        font=font_team_name, fill=(240, 240, 245), anchor="mm",
+    )
+
+    draw_arabic_text(
+        draw, (away_cx, y_logo + logo_size + 24), away_name,
+        font=font_team_name, fill=(240, 240, 245), anchor="mm",
+    )
+
+    # --- النص المركزي (النتيجة أو موعد الماتش) ---
+    # النتيجة (زي "0 - 2") أرقام بس؛ اتجاه RTL بيقلب ترتيب
+    # المجموعات الرقمية المنفصلة فيها. لكن وقت الماتش فيه كلمة
+    # عربية حقيقية (زي "مساءً") ومحتاج RTL عشان تتشكّل صح.
+    # فبنقرر حسب محتوى النص نفسه.
+    font_center = ImageFont.truetype(FONT_BOLD_PATH, 42)
+
+    has_arabic = any(
+        "\u0600" <= ch <= "\u06FF" for ch in center_text
+    )
+
+    center_xy = (width / 2, banner_height + team_row_height / 2 - 6)
+
+    if has_arabic:
+        draw_arabic_text(
+            draw, center_xy, center_text,
+            font=font_center, fill=COLOR_CARD_ACCENT, anchor="mm",
+        )
+    else:
+        draw.text(
+            center_xy, center_text,
+            font=font_center, fill=COLOR_CARD_ACCENT, anchor="mm",
+        )
+
+    # --- خط فاصل ---
+    y_divider = banner_height + team_row_height
+
+    draw.line(
+        [(60, y_divider), (width - 60, y_divider)],
+        fill=(58, 62, 80), width=2,
+    )
+
+    # --- تفاصيل إضافية (تاريخ/وقت أو قائمة الأهداف) ---
+    y = y_divider + padding_top
+
     font_normal = ImageFont.truetype(FONT_REGULAR_PATH, 24)
+    font_sub_header = ImageFont.truetype(FONT_BOLD_PATH, 22)
     font_small = ImageFont.truetype(FONT_REGULAR_PATH, 20)
 
-    y = padding_top
+    for line in extra_lines:
 
-    for index, line in enumerate(lines):
+        line = line.strip()
 
         if not line:
             y += blank_gap
             continue
 
-        is_title = (index == 0)
-        is_score_line = "🆚" in line or (
-            " - " in line and any(ch.isdigit() for ch in line)
-        )
-        is_sub_header = line.startswith("أهداف") or line.startswith(
-            "🏆"
-        )
+        is_sub_header = line.startswith("أهداف")
+        is_hashtag = line.startswith("#")
 
-        if is_title:
-            font, color = font_title, (255, 255, 255)
-        elif is_score_line:
-            font, color = font_score, COLOR_CARD_ACCENT
-        elif is_sub_header:
-            font, color = font_normal, (200, 205, 220)
-        elif line.startswith("#"):
+        if is_sub_header:
+            font, color = font_sub_header, (205, 210, 225)
+        elif is_hashtag:
             font, color = font_small, (140, 145, 165)
         else:
             font, color = font_normal, COLOR_CARD_TEXT
@@ -153,6 +237,66 @@ def draw_message_card(message_text, competition_name):
         y += line_height
 
     return img
+
+
+def build_schedule_card_lines(match):
+
+    kickoff = datetime.fromisoformat(match["kickoff_at"])
+
+    if kickoff.tzinfo is not None:
+        kickoff = kickoff.astimezone(TIMEZONE)
+
+    return (
+        f"⏰ {format_arabic_time(kickoff)} بتوقيت القاهرة",
+        [f"📆 {kickoff.date().isoformat()}"],
+    )
+
+
+def build_result_card_lines(match, home_name, away_name, goals, players):
+
+    center_text = f"{match['home_score']}  -  {match['away_score']}"
+
+    lines = []
+
+    if goals:
+
+        home_team_id = match["home_team_id"]
+        away_team_id = match["away_team_id"]
+
+        home_goals = [g for g in goals if g.get("team_id") == home_team_id]
+        away_goals = [g for g in goals if g.get("team_id") == away_team_id]
+
+        def format_goal_lines(team_goals):
+
+            output = []
+
+            for goal in team_goals:
+
+                player = players.get(goal.get("player_id"), {})
+
+                player_name = resolve_name(
+                    player.get("name"), player.get("name_ar")
+                )
+
+                minute_text = format_minute(
+                    goal.get("minute"), goal.get("extra_time")
+                )
+
+                if player_name:
+                    output.append(f"⚽ {player_name} {minute_text}")
+
+            return output
+
+        if home_goals:
+            lines.append(f"أهداف {home_name}:")
+            lines.extend(format_goal_lines(home_goals))
+            lines.append("")
+
+        if away_goals:
+            lines.append(f"أهداف {away_name}:")
+            lines.extend(format_goal_lines(away_goals))
+
+    return center_text, lines
 
 
 def telegram_send_photo_bytes_from_image(img, caption=""):
@@ -451,9 +595,16 @@ def publish_schedules():
                 match["competition_id"], ""
             )
 
-            card = draw_message_card(message, competition_name)
+            home = teams.get(match["home_team_id"], {})
+            away = teams.get(match["away_team_id"], {})
 
-            telegram_send_photo_bytes_from_image(card)
+            center_text, extra_lines = build_schedule_card_lines(match)
+
+            card = draw_match_card(
+                competition_name, home, away, center_text, extra_lines
+            )
+
+            telegram_send_photo_bytes_from_image(card, caption=message)
 
             supabase_request(
                 "PATCH",
@@ -519,9 +670,21 @@ def publish_results():
                 match["competition_id"], ""
             )
 
-            card = draw_message_card(message, competition_name)
+            home = teams.get(match["home_team_id"], {})
+            away = teams.get(match["away_team_id"], {})
 
-            telegram_send_photo_bytes_from_image(card)
+            home_name = resolve_name(home.get("name"), home.get("name_ar"))
+            away_name = resolve_name(away.get("name"), away.get("name_ar"))
+
+            center_text, extra_lines = build_result_card_lines(
+                match, home_name, away_name, goals, players
+            )
+
+            card = draw_match_card(
+                competition_name, home, away, center_text, extra_lines
+            )
+
+            telegram_send_photo_bytes_from_image(card, caption=message)
 
             supabase_request(
                 "PATCH",
