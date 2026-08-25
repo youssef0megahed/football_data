@@ -80,7 +80,8 @@ COLOR_CARD_ACCENT = (86, 180, 233)
 
 
 def draw_match_card(
-    competition_name, home_team, away_team, center_text, extra_lines
+    competition_name, home_team, away_team, center_text,
+    extra_lines=None, home_lines=None, away_lines=None,
 ):
 
     competition_ar = COMPETITION_NAMES_AR.get(
@@ -96,15 +97,32 @@ def draw_match_card(
     team_row_height = 190
     logo_size = 100
 
-    line_height = 50
-    blank_gap = 22
+    line_height = 46
+    blank_gap = 20
     padding_top = 34
     padding_bottom = 40
 
-    content_height = 0
+    two_column = home_lines is not None or away_lines is not None
 
-    for line in extra_lines:
-        content_height += line_height if line.strip() else blank_gap
+    if two_column:
+
+        home_lines = home_lines or []
+        away_lines = away_lines or []
+
+        content_height = (
+            max(len(home_lines), len(away_lines)) * line_height
+        )
+
+    else:
+
+        extra_lines = extra_lines or []
+
+        content_height = 0
+
+        for line in extra_lines:
+            content_height += (
+                line_height if line.strip() else blank_gap
+            )
 
     height = (
         banner_height + team_row_height
@@ -204,37 +222,73 @@ def draw_match_card(
         fill=(58, 62, 80), width=2,
     )
 
-    # --- تفاصيل إضافية (تاريخ/وقت أو قائمة الأهداف) ---
-    y = y_divider + padding_top
+    # --- تفاصيل إضافية ---
+    y_start = y_divider + padding_top
 
-    font_normal = ImageFont.truetype(FONT_REGULAR_PATH, 24)
-    font_sub_header = ImageFont.truetype(FONT_BOLD_PATH, 22)
+    font_normal = ImageFont.truetype(FONT_REGULAR_PATH, 22)
+    font_sub_header = ImageFont.truetype(FONT_BOLD_PATH, 21)
     font_small = ImageFont.truetype(FONT_REGULAR_PATH, 20)
 
-    for line in extra_lines:
+    if two_column:
 
-        line = line.strip()
+        def draw_column(lines, cx):
 
-        if not line:
-            y += blank_gap
-            continue
+            y = y_start
 
-        is_sub_header = line.startswith("أهداف")
-        is_hashtag = line.startswith("#")
+            for line in lines:
 
-        if is_sub_header:
-            font, color = font_sub_header, (205, 210, 225)
-        elif is_hashtag:
-            font, color = font_small, (140, 145, 165)
-        else:
-            font, color = font_normal, COLOR_CARD_TEXT
+                line = line.strip()
 
-        draw_arabic_text(
-            draw, (width / 2, y + line_height / 2), line,
-            font=font, fill=color, anchor="mm",
+                is_header = line.startswith("أهداف")
+
+                font, color = (
+                    (font_sub_header, (205, 210, 225))
+                    if is_header
+                    else (font_normal, COLOR_CARD_TEXT)
+                )
+
+                draw_arabic_text(
+                    draw, (cx, y + line_height / 2), line,
+                    font=font, fill=color, anchor="mm",
+                )
+
+                y += line_height
+
+        draw_column(home_lines, home_cx)
+        draw_column(away_lines, away_cx)
+
+        # فاصل عمودي خفيف بين العمودين
+        draw.line(
+            [(width / 2, y_divider + 10), (width / 2, height - 15)],
+            fill=(45, 49, 64), width=1,
         )
 
-        y += line_height
+    else:
+
+        y = y_start
+
+        for line in extra_lines:
+
+            line = line.strip()
+
+            if not line:
+                y += blank_gap
+                continue
+
+            is_hashtag = line.startswith("#")
+
+            font, color = (
+                (font_small, (140, 145, 165))
+                if is_hashtag
+                else (font_normal, COLOR_CARD_TEXT)
+            )
+
+            draw_arabic_text(
+                draw, (width / 2, y + line_height / 2), line,
+                font=font, fill=color, anchor="mm",
+            )
+
+            y += line_height
 
     return img
 
@@ -260,7 +314,29 @@ def build_result_card_lines(match, home_name, away_name, goals, players):
 
     center_text = f"{match['home_score']}  -  {match['away_score']}"
 
-    lines = []
+    def format_goal_lines(team_goals):
+
+        output = []
+
+        for goal in team_goals:
+
+            player = players.get(goal.get("player_id"), {})
+
+            player_name = resolve_name(
+                player.get("name"), player.get("name_ar")
+            )
+
+            minute_text = format_minute(
+                goal.get("minute"), goal.get("extra_time")
+            )
+
+            if player_name:
+                output.append(f"⚽ {player_name} {minute_text}")
+
+        return output
+
+    home_lines = []
+    away_lines = []
 
     if goals:
 
@@ -270,37 +346,15 @@ def build_result_card_lines(match, home_name, away_name, goals, players):
         home_goals = [g for g in goals if g.get("team_id") == home_team_id]
         away_goals = [g for g in goals if g.get("team_id") == away_team_id]
 
-        def format_goal_lines(team_goals):
-
-            output = []
-
-            for goal in team_goals:
-
-                player = players.get(goal.get("player_id"), {})
-
-                player_name = resolve_name(
-                    player.get("name"), player.get("name_ar")
-                )
-
-                minute_text = format_minute(
-                    goal.get("minute"), goal.get("extra_time")
-                )
-
-                if player_name:
-                    output.append(f"⚽ {player_name} {minute_text}")
-
-            return output
-
         if home_goals:
-            lines.append(f"أهداف {home_name}:")
-            lines.extend(format_goal_lines(home_goals))
-            lines.append("")
+            home_lines.append(f"أهداف {home_name}:")
+            home_lines.extend(format_goal_lines(home_goals))
 
         if away_goals:
-            lines.append(f"أهداف {away_name}:")
-            lines.extend(format_goal_lines(away_goals))
+            away_lines.append(f"أهداف {away_name}:")
+            away_lines.extend(format_goal_lines(away_goals))
 
-    return center_text, lines
+    return center_text, home_lines, away_lines
 
 
 def telegram_send_photo_bytes_from_image(img, caption=""):
@@ -680,12 +734,13 @@ def publish_results():
             home_name = resolve_name(home.get("name"), home.get("name_ar"))
             away_name = resolve_name(away.get("name"), away.get("name_ar"))
 
-            center_text, extra_lines = build_result_card_lines(
+            center_text, home_lines, away_lines = build_result_card_lines(
                 match, home_name, away_name, goals, players
             )
 
             card = draw_match_card(
-                competition_name, home, away, center_text, extra_lines
+                competition_name, home, away, center_text,
+                home_lines=home_lines, away_lines=away_lines,
             )
 
             telegram_send_photo_bytes_from_image(card, caption=message)
@@ -695,38 +750,4 @@ def publish_results():
                 "matches",
                 params={"id": f"eq.{match['id']}"},
                 json_body={
-                    "result_posted_at": datetime.now(TIMEZONE).isoformat()
-                },
-                extra_headers={"Prefer": "return=minimal"},
-            )
-
-            log(f"Sent result for match={match['id']}")
-
-        except Exception as error:
-            log(f"ERROR result match={match['id']}: {error}")
-            continue
-
-    log("==================================================")
-    log("PUBLISH RESULTS END")
-    log("==================================================")
-
-
-def main():
-
-    import sys
-
-    validate_environment()
-    validate_telegram_env()
-
-    mode = sys.argv[1] if len(sys.argv) > 1 else "both"
-
-    if mode in ("schedule", "both"):
-        publish_schedules()
-
-    if mode in ("results", "both"):
-        publish_results()
-
-
-if __name__ == "__main__":
-    main()
-    
+            
