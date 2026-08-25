@@ -246,10 +246,14 @@ def build_schedule_card_lines(match):
     if kickoff.tzinfo is not None:
         kickoff = kickoff.astimezone(TIMEZONE)
 
-    return (
+    center_text = "VS"
+
+    lines = [
         f"⏰ {format_arabic_time(kickoff)} بتوقيت القاهرة",
-        [f"📆 {kickoff.date().isoformat()}"],
-    )
+        f"📆 {kickoff.date().isoformat()}",
+    ]
+
+    return center_text, lines
 
 
 def build_result_card_lines(match, home_name, away_name, goals, players):
