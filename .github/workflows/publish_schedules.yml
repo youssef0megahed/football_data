@@ -1,14 +1,13 @@
-name: نشر مواعيد اليوم (تليجرام)
+name: نشر النتائج (تليجرام)
 
 on:
   schedule:
-    # 8 صباحًا بتوقيت القاهرة (5:00 UTC)
-    - cron: "0 5 * * *"
+    - cron: "*/10 * * * *"
 
   workflow_dispatch:
 
 jobs:
-  publish-schedules:
+  publish-results:
     runs-on: ubuntu-latest
 
     timeout-minutes: 5
@@ -39,11 +38,13 @@ jobs:
           curl -sSL -o assets/Cairo-SemiBold.ttf \
             "https://github.com/Gue3bara/Cairo/raw/7030db78cca3a7a7d94f9071b3f35dad7447ae71/fonts/ttf/Cairo-SemiBold.ttf"
 
-      - name: نشر مواعيد اليوم
+      - name: نشر النتائج
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          PYTHONPATH: .  # <-- تمت إضافته هنا
         run: |
-          python publish_telegram.py schedule
+          python publish_telegram.py both  # <-- تم تغييرها لـ both عشان يشغل المواعيد والنتائج
+          
