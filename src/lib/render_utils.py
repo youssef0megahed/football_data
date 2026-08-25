@@ -1,6 +1,6 @@
 import io
 import requests
-from PIL import Image
+from PIL import Image, ImageDraw
 
 from lib.log import log
 
@@ -55,9 +55,32 @@ def _get_manual_fallback():
     return _manual_fallback_libs
 
 
+import re
+
+EMOJI_PATTERN = re.compile(
+    "["
+    "\U0001F000-\U0001FAFF"
+    "\U00002300-\U000023FF"
+    "\U00002600-\U000027BF"
+    "\U00002190-\U000021FF"
+    "\U00002B00-\U00002BFF"
+    "\U0000FE0F"
+    "]+",
+    flags=re.UNICODE,
+)
+
+
+def strip_emoji(text):
+    """خط Cairo مالوش رموز إيموجي خالص — أي إيموجي في نص هيترسم
+    على الصورة هيطلع مربع فاضي. بنشيله هنا مركزيًا عشان كل
+    الصور تستفيد من الإصلاح من غير ما نكرره في كل سكريبت."""
+
+    return EMOJI_PATTERN.sub("", text).strip()
+
+
 def draw_arabic_text(draw, xy, text, font, fill, anchor="mm"):
 
-    text = str(text)
+    text = strip_emoji(str(text))
 
     try:
 
@@ -94,7 +117,17 @@ def get_logo(url, size):
 
     try:
 
-        response = requests.get(url, timeout=REQUEST_TIMEOUT)
+        response = requests.get(
+            url,
+            headers={
+                "User-Agent": (
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/120.0 Safari/537.36"
+                )
+            },
+            timeout=REQUEST_TIMEOUT,
+        )
         response.raise_for_status()
 
         logo = Image.open(io.BytesIO(response.content)).convert("RGBA")
@@ -118,4 +151,56 @@ def draw_placeholder_circle(draw, cx, cy, size):
         fill=(225, 227, 233),
         outline=COLOR_BORDER,
     )
-    
+
+
+# ============================================================
+# PLAYER HEADSHOTS (ESPN CDN — نمط ثابت اتأكدنا منه)
+# ============================================================
+
+def get_player_headshot_url(source_player_id):
+
+    if not source_player_id:
+        return None
+
+    return (
+        "https://a.espncdn.com/i/headshots/soccer/players/full/"
+        f"{source_player_id}.png"
+    )
+
+
+def get_diamond_photo(url, size):
+    """يرجع صورة اللاعب مقصوصة بشكل معين (diamond) بحواف بيضاء،
+    أو None لو مفيش صورة/فشل التحميل."""
+
+    photo = get_logo(url, size)
+
+    if not photo:
+        return None
+
+    # قناع المعين (rotate square = diamond)
+    mask = Image.new("L", (size, size), 0)
+    mask_draw = ImageDraw.Draw(mask)
+    mask_draw.polygon(
+        [(size / 2, 0), (size, size / 2), (size / 2, size), (0, size / 2)],
+        fill=255,
+    )
+
+    diamond = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    diamond.paste(photo, (0, 0), mask)
+
+    return diamond
+
+
+def draw_diamond_frame(draw, cx, cy, size, border_color, width=4):
+    """بيرسم إطار المعين الأبيض حوالين الصورة."""
+
+    half = size / 2
+
+    draw.polygon(
+        [
+            (cx, cy - half), (cx + half, cy),
+            (cx, cy + half), (cx - half, cy),
+        ],
+        outline=border_color, width=width,
+        )
+            
