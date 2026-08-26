@@ -1,4 +1,4 @@
-name: نشر النتائج (تليجرام)
+name: نشر المواعيد (تليجرام)
 
 on:
   schedule:
@@ -38,7 +38,7 @@ jobs:
           curl -sSL -o assets/Cairo-SemiBold.ttf \
             "https://github.com/Gue3bara/Cairo/raw/7030db78cca3a7a7d94f9071b3f35dad7447ae71/fonts/ttf/Cairo-SemiBold.ttf"
 
-      - name: نشر النتائج
+      - name: نشر المواعيد
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
