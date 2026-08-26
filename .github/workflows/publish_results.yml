@@ -1,0 +1,48 @@
+name: "🔁 [تلقائي] نشر النتائج (تليجرام)"
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+
+  workflow_dispatch:
+
+jobs:
+  publish-results:
+    runs-on: ubuntu-latest
+
+    timeout-minutes: 5
+
+    defaults:
+      run:
+        working-directory: src
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests pillow arabic-reshaper python-bidi
+
+      - name: تحميل خط Cairo العربي
+        run: |
+          mkdir -p assets
+          curl -sSL -o assets/Cairo-Regular.ttf \
+            "https://github.com/Gue3bara/Cairo/raw/7030db78cca3a7a7d94f9071b3f35dad7447ae71/fonts/ttf/Cairo-Regular.ttf"
+          curl -sSL -o assets/Cairo-SemiBold.ttf \
+            "https://github.com/Gue3bara/Cairo/raw/7030db78cca3a7a7d94f9071b3f35dad7447ae71/fonts/ttf/Cairo-SemiBold.ttf"
+
+      - name: نشر النتائج
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          python -m publish.schedules_results results

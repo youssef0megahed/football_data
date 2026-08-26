@@ -1,0 +1,36 @@
+name: "🛠️ [يدوي] ترجمة أسماء الفرق واللاعبين"
+
+on:
+  workflow_dispatch:
+
+jobs:
+  translate-names:
+    runs-on: ubuntu-latest
+
+    timeout-minutes: 30
+
+    defaults:
+      run:
+        working-directory: src
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests
+
+      - name: ترجمة الأسماء
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          python -m admin.translate_names
