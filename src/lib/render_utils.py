@@ -124,11 +124,32 @@ def get_logo(url, size):
                     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                     "AppleWebKit/537.36 (KHTML, like Gecko) "
                     "Chrome/120.0 Safari/537.36"
-                )
+                ),
+                "Referer": "https://www.espn.com/",
+                "Accept": "image/avif,image/webp,image/*,*/*;q=0.8",
             },
             timeout=REQUEST_TIMEOUT,
         )
-        response.raise_for_status()
+
+        if response.status_code != 200:
+            log(
+                f"WARNING: logo fetch {url} -> "
+                f"HTTP {response.status_code}"
+            )
+            _logo_cache[cache_key] = None
+            return None
+
+        content_length = len(response.content)
+
+        if content_length < 500:
+            log(
+                f"WARNING: logo {url} suspiciously small "
+                f"({content_length} bytes, "
+                f"content-type={response.headers.get('Content-Type')})"
+                f" — likely a placeholder, not the real logo."
+            )
+            _logo_cache[cache_key] = None
+            return None
 
         logo = Image.open(io.BytesIO(response.content)).convert("RGBA")
         logo = logo.resize((size, size), Image.LANCZOS)
@@ -202,5 +223,5 @@ def draw_diamond_frame(draw, cx, cy, size, border_color, width=4):
             (cx, cy + half), (cx - half, cy),
         ],
         outline=border_color, width=width,
-        )
-            
+    )
+    
