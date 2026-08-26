@@ -92,15 +92,15 @@ def draw_match_card(
         competition_name, (40, 46, 66)
     )
 
-    width = 900
-    banner_height = 100
-    team_row_height = 190
-    logo_size = 100
+    width = 800
+    banner_height = 150
+    team_row_height = 300
+    logo_size = 150
 
-    line_height = 46
-    blank_gap = 20
-    padding_top = 34
-    padding_bottom = 40
+    line_height = 48
+    blank_gap = 22
+    padding_top = 40
+    padding_bottom = 50
 
     two_column = home_lines is not None or away_lines is not None
 
@@ -124,10 +124,20 @@ def draw_match_card(
                 line_height if line.strip() else blank_gap
             )
 
-    height = (
+    natural_height = (
         banner_height + team_row_height
         + padding_top + padding_bottom + content_height
     )
+
+    # نستهدف نسبة 4:5 (طولية، أفضل انتشار على فيسبوك) — لو
+    # المحتوى أقصر من كده بيتوزع فراغ إضافي فوق وتحت المحتوى
+    # عشان الكارت مايبقاش فاضي من غير ما نمطط المحتوى نفسه.
+    target_height = int(width * 1.25)
+
+    height = max(natural_height, target_height)
+
+    extra_padding = max(0, height - natural_height)
+    content_padding_top = padding_top + extra_padding // 2
 
     img = Image.new("RGB", (width, height), COLOR_CARD_BG)
     draw = ImageDraw.Draw(img)
@@ -135,7 +145,7 @@ def draw_match_card(
     # --- بانر البطولة ---
     draw.rectangle([(0, 0), (width, banner_height)], fill=banner_color)
 
-    font_banner = ImageFont.truetype(FONT_BOLD_PATH, 28)
+    font_banner = ImageFont.truetype(FONT_BOLD_PATH, 34)
 
     draw_arabic_text(
         draw, (width / 2, banner_height / 2), f"🏆 {competition_ar}",
@@ -143,7 +153,7 @@ def draw_match_card(
     )
 
     # --- صف الفريقين (شعار + اسم)، المضيف يمين والضيف شمال ---
-    y_logo = banner_height + (team_row_height - logo_size) // 2 - 12
+    y_logo = banner_height + (team_row_height - logo_size) // 2 - 15
 
     home_cx = width * 0.76
     away_cx = width * 0.24
@@ -171,7 +181,7 @@ def draw_match_card(
             draw, away_cx, y_logo + logo_size / 2, logo_size
         )
 
-    font_team_name = ImageFont.truetype(FONT_BOLD_PATH, 22)
+    font_team_name = ImageFont.truetype(FONT_BOLD_PATH, 28)
 
     home_name = (
         home_team.get("name_ar") or home_team.get("name") or "?"
@@ -181,12 +191,12 @@ def draw_match_card(
     )
 
     draw_arabic_text(
-        draw, (home_cx, y_logo + logo_size + 24), home_name,
+        draw, (home_cx, y_logo + logo_size + 30), home_name,
         font=font_team_name, fill=(240, 240, 245), anchor="mm",
     )
 
     draw_arabic_text(
-        draw, (away_cx, y_logo + logo_size + 24), away_name,
+        draw, (away_cx, y_logo + logo_size + 30), away_name,
         font=font_team_name, fill=(240, 240, 245), anchor="mm",
     )
 
@@ -195,13 +205,13 @@ def draw_match_card(
     # المجموعات الرقمية المنفصلة فيها. لكن وقت الماتش فيه كلمة
     # عربية حقيقية (زي "مساءً") ومحتاج RTL عشان تتشكّل صح.
     # فبنقرر حسب محتوى النص نفسه.
-    font_center = ImageFont.truetype(FONT_BOLD_PATH, 42)
+    font_center = ImageFont.truetype(FONT_BOLD_PATH, 52)
 
     has_arabic = any(
         "\u0600" <= ch <= "\u06FF" for ch in center_text
     )
 
-    center_xy = (width / 2, banner_height + team_row_height / 2 - 6)
+    center_xy = (width / 2, banner_height + team_row_height / 2 - 10)
 
     if has_arabic:
         draw_arabic_text(
@@ -223,10 +233,10 @@ def draw_match_card(
     )
 
     # --- تفاصيل إضافية ---
-    y_start = y_divider + padding_top
+    y_start = y_divider + content_padding_top
 
-    font_normal = ImageFont.truetype(FONT_REGULAR_PATH, 22)
-    font_sub_header = ImageFont.truetype(FONT_BOLD_PATH, 21)
+    font_normal = ImageFont.truetype(FONT_REGULAR_PATH, 24)
+    font_sub_header = ImageFont.truetype(FONT_BOLD_PATH, 23)
     font_small = ImageFont.truetype(FONT_REGULAR_PATH, 20)
 
     if two_column:
@@ -738,16 +748,4 @@ def publish_results():
                 match, home_name, away_name, goals, players
             )
 
-            card = draw_match_card(
-                competition_name, home, away, center_text,
-                home_lines=home_lines, away_lines=away_lines,
-            )
-
-            telegram_send_photo_bytes_from_image(card, caption=message)
-
-            supabase_request(
-                "PATCH",
-                "matches",
-                params={"id": f"eq.{match['id']}"},
-                json_body={
-            
+            card = dra
