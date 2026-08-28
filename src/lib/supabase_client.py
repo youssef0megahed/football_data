@@ -101,3 +101,4 @@ def upsert(table, records, on_conflict, return_rows=False):
 
 def select(table, params):
     return supabase_request("GET", table, params=params)
+    
