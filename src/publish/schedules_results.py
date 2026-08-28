@@ -411,7 +411,8 @@ def telegram_send_photo_bytes(image_bytes, caption):
 
     return retry_call(request, "Telegram sendPhoto")
 
-           # ============================================================
+
+# ============================================================
 # HELPERS
 # ============================================================
 
@@ -442,11 +443,10 @@ def get_teams_by_ids(team_ids):
 
     rows = select(
         "teams",
-        {"select": "id,name,name_ar", "id": f"in.({ids})"},
+        {"select": "id,name,name_ar,logo", "id": f"in.({ids})"},
     )
 
     return {row["id"]: row for row in rows}
-
 
 # ============================================================
 # SCHEDULE MESSAGES (upcoming matches today, not yet posted)
@@ -489,16 +489,16 @@ def build_schedule_message(match, teams, competition_name):
     if kickoff.tzinfo is not None:
         kickoff = kickoff.astimezone(TIMEZONE)
 
-    lines = ["مباراة اليوم ⌛⌛", ""]
+    lines = ["📅 مباراة اليوم", ""]
 
     if competition_ar:
         lines.append(f"🏆 {competition_ar}")
         lines.append("")
 
-    lines.append(f" {home_name} 🆚 {away_name}")
+    lines.append(f"⚽ {home_name} 🆚 {away_name}")
     lines.append("")
-    lines.append(f" {kickoff.date().isoformat()}⏰⏰")
-    lines.append(f" {format_arabic_time(kickoff)} بتوقيت القاهرة")
+    lines.append(f"📆 {kickoff.date().isoformat()}")
+    lines.append(f"⏰ {format_arabic_time(kickoff)} بتوقيت القاهرة")
 
     return "\n".join(lines)
 
@@ -796,4 +796,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()     
+    main()
