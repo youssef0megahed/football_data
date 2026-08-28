@@ -489,15 +489,15 @@ def build_schedule_message(match, teams, competition_name):
     if kickoff.tzinfo is not None:
         kickoff = kickoff.astimezone(TIMEZONE)
 
-    lines = ["📅 مباراة اليوم", ""]
+    lines = [" مباراة اليوم ⌛⌛", ""]
 
     if competition_ar:
         lines.append(f"🏆 {competition_ar}")
         lines.append("")
 
-    lines.append(f"⚽ {home_name} 🆚 {away_name}")
+    lines.append(f" {home_name} 🆚 {away_name}")
     lines.append("")
-    lines.append(f"📆 {kickoff.date().isoformat()}")
+    lines.append(f" {kickoff.date().isoformat()} ⏰📣")
     lines.append(f"⏰ {format_arabic_time(kickoff)} بتوقيت القاهرة")
 
     return "\n".join(lines)
