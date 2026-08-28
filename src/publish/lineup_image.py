@@ -2,11 +2,13 @@ import os
 import sys
 import io
 import requests
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 from PIL import Image, ImageDraw, ImageFont
 
 from lib.config import validate_environment
 from lib.log import log, retry_call
-from lib.supabase_client import select
+from lib.supabase_client import select, supabase_request
 from lib.render_utils import (
     draw_arabic_text, get_logo,
     FONT_REGULAR_PATH, FONT_BOLD_PATH,
@@ -17,7 +19,12 @@ from lib.render_utils import (
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
+TIMEZONE = ZoneInfo("Africa/Cairo")
 REQUEST_TIMEOUT = 30
+
+# نفحص المباريات اللي هتبدأ خلال الفترة دي، لأن ESPN بينشر
+# التشكيلة الرسمية عادة قبل الماتش بساعة تقريبًا.
+LOOKAHEAD_MINUTES = 120
 
 COLOR_BG = (18, 20, 28)
 COLOR_TEXT = (240, 240, 245)
@@ -30,6 +37,42 @@ def validate_telegram_env():
         raise RuntimeError(
             "Missing TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID"
         )
+
+
+# ============================================================
+# المباريات المرشحة للإعلان عن التشكيلة تلقائيًا
+# ============================================================
+
+def get_matches_needing_lineup():
+
+    now = datetime.now(TIMEZONE)
+    end = now + timedelta(minutes=LOOKAHEAD_MINUTES)
+
+    return select(
+        "matches",
+        {
+            "select": "id,kickoff_at",
+            "status": "eq.SCHEDULED",
+            "kickoff_at": [
+                f"gte.{now.isoformat()}",
+                f"lte.{end.isoformat()}",
+            ],
+            "lineup_posted_at": "is.null",
+        },
+    )
+
+
+def mark_lineup_posted(match_id):
+
+    supabase_request(
+        "PATCH",
+        "matches",
+        params={"id": f"eq.{match_id}"},
+        json_body={
+            "lineup_posted_at": datetime.now(TIMEZONE).isoformat()
+        },
+        extra_headers={"Prefer": "return=minimal"},
+    )
 
 
 # ============================================================
@@ -400,25 +443,37 @@ def telegram_send_photo(image_path, caption=""):
 # MAIN
 # ============================================================
 
-def main():
+def process_one_match(match_id):
+    """يرجع True لو اتبعتت تشكيلة فعليًا، False لو لسه مش جاهزة."""
 
-    validate_environment()
-    validate_telegram_env()
-
-    if len(sys.argv) < 2:
-        raise RuntimeError("Usage: publish_lineup_image.py <match_id>")
-
-    match_id = int(sys.argv[1])
-
-    log(f"Generating lineup image for match={match_id}")
+    log(f"Checking lineup for match={match_id}")
 
     match, competition_name, lineup_rows, players, teams = (
         get_lineup_data(match_id)
     )
 
     if not lineup_rows:
-        log("No starting lineup data for this match yet. Aborting.")
-        return
+        log(f"match={match_id}: no lineup data yet.")
+        return False
+
+    # نتأكد إن التشكيلة مكتملة (11 أساسي لكل فريق) قبل النشر،
+    # عشان منبعتش تشكيلة ناقصة لسه بتتحدّث من ESPN.
+    home_count = sum(
+        1 for r in lineup_rows
+        if r["team_id"] == match["home_team_id"]
+    )
+    away_count = sum(
+        1 for r in lineup_rows
+        if r["team_id"] == match["away_team_id"]
+    )
+
+    if home_count < 11 or away_count < 11:
+        log(
+            f"match={match_id}: lineup incomplete "
+            f"(home={home_count}, away={away_count}). "
+            f"Will retry next run."
+        )
+        return False
 
     img = draw_lineup(
         match, competition_name, lineup_rows, players, teams
@@ -427,13 +482,58 @@ def main():
     output_path = f"lineup_{match_id}.png"
     img.save(output_path)
 
-    log(f"Image saved: {output_path}")
-
     telegram_send_photo(output_path, caption="📋 التشكيلة الرسمية")
 
-    log("Sent lineup image.")
+    log(f"match={match_id}: lineup image sent.")
+
+    return True
+
+
+def main():
+
+    validate_environment()
+    validate_telegram_env()
+
+    # وضع يدوي/تشخيصي: تحديد ماتش بعينه بالـ id
+    if len(sys.argv) >= 2:
+
+        match_id = int(sys.argv[1])
+
+        sent = process_one_match(match_id)
+
+        if sent:
+            mark_lineup_posted(match_id)
+
+        return
+
+    # الوضع التلقائي: أي ماتش هيبدأ قريب ولسه ما اتبعتش له تشكيلة
+    log("==================================================")
+    log("AUTO LINEUP PUBLISHER START")
+    log("==================================================")
+
+    matches = get_matches_needing_lineup()
+
+    log(f"Candidate matches: {len(matches)}")
+
+    for match in matches:
+
+        try:
+
+            sent = process_one_match(match["id"])
+
+            if sent:
+                mark_lineup_posted(match["id"])
+
+        except Exception as error:
+            log(f"ERROR match={match['id']}: {error}")
+            continue
+
+    log("==================================================")
+    log("AUTO LINEUP PUBLISHER END")
+    log("==================================================")
 
 
 if __name__ == "__main__":
     main()
-          
+
+            
