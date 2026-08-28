@@ -411,8 +411,7 @@ def telegram_send_photo_bytes(image_bytes, caption):
 
     return retry_call(request, "Telegram sendPhoto")
 
-
-# ============================================================
+           # ============================================================
 # HELPERS
 # ============================================================
 
@@ -746,4 +745,55 @@ def publish_results():
             away = teams.get(match["away_team_id"], {})
 
             home_name = resolve_name(home.get("name"), home.get("name_ar"))
-            away_na
+            away_name = resolve_name(away.get("name"), away.get("name_ar"))
+
+            center_text, home_lines, away_lines = build_result_card_lines(
+                match, home_name, away_name, goals, players
+            )
+
+            card = draw_match_card(
+                competition_name, home, away, center_text,
+                home_lines=home_lines, away_lines=away_lines,
+            )
+
+            telegram_send_photo_bytes_from_image(card, caption=message)
+
+            supabase_request(
+                "PATCH",
+                "matches",
+                params={"id": f"eq.{match['id']}"},
+                json_body={
+                    "result_posted_at": datetime.now(TIMEZONE).isoformat()
+                },
+                extra_headers={"Prefer": "return=minimal"},
+            )
+
+            log(f"Sent result for match={match['id']}")
+
+        except Exception as error:
+            log(f"ERROR result match={match['id']}: {error}")
+            continue
+
+    log("==================================================")
+    log("PUBLISH RESULTS END")
+    log("==================================================")
+
+
+def main():
+
+    import sys
+
+    validate_environment()
+    validate_telegram_env()
+
+    mode = sys.argv[1] if len(sys.argv) > 1 else "both"
+
+    if mode in ("schedule", "both"):
+        publish_schedules()
+
+    if mode in ("results", "both"):
+        publish_results()
+
+
+if __name__ == "__main__":
+    main()     
