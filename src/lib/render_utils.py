@@ -108,12 +108,16 @@ _logo_cache = {}
 def get_logo(url, size):
 
     if not url:
+        log("DEBUG: logo fetch called with empty/None url")
         return None
 
     cache_key = (url, size)
 
     if cache_key in _logo_cache:
+        log(f"DEBUG: logo cache HIT url={url}")
         return _logo_cache[cache_key]
+
+    log(f"DEBUG: logo fetch ATTEMPT url={url}")
 
     try:
 
@@ -131,23 +135,20 @@ def get_logo(url, size):
             timeout=REQUEST_TIMEOUT,
         )
 
+        log(
+            f"DEBUG: logo fetch RESPONSE url={url} "
+            f"status={response.status_code} "
+            f"bytes={len(response.content)} "
+            f"content_type={response.headers.get('Content-Type')}"
+        )
+
         if response.status_code != 200:
-            log(
-                f"WARNING: logo fetch {url} -> "
-                f"HTTP {response.status_code}"
-            )
             _logo_cache[cache_key] = None
             return None
 
         content_length = len(response.content)
 
         if content_length < 500:
-            log(
-                f"WARNING: logo {url} suspiciously small "
-                f"({content_length} bytes, "
-                f"content-type={response.headers.get('Content-Type')})"
-                f" — likely a placeholder, not the real logo."
-            )
             _logo_cache[cache_key] = None
             return None
 
@@ -224,4 +225,4 @@ def draw_diamond_frame(draw, cx, cy, size, border_color, width=4):
         ],
         outline=border_color, width=width,
     )
-    
+
