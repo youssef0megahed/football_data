@@ -1,17 +1,20 @@
-name: "🛠️ [يدوي] نشر التشكيلة (صورة)"
+name: "🔁 [تلقائي] نشر التشكيلة (صورة)"
 
 on:
+  schedule:
+    - cron: "*/10 * * * *"
+
   workflow_dispatch:
     inputs:
       match_id:
-        description: "رقم الماتش الداخلي (id في جدول matches)"
-        required: true
+        description: "رقم ماتش محدد (اختياري — سيبها فاضية للوضع التلقائي)"
+        required: false
 
 jobs:
   publish-lineup-image:
     runs-on: ubuntu-latest
 
-    timeout-minutes: 5
+    timeout-minutes: 8
 
     defaults:
       run:
@@ -46,4 +49,4 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
-          python -m publish.lineup_image "${{ github.event.inputs.match_id }}"
+          python -m publish.lineup_image ${{ github.event.inputs.match_id }}
