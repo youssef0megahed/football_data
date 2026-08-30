@@ -252,6 +252,128 @@ def draw_fallback_circle(draw, cx, cy, size, jersey_number, font):
 # IMAGE
 # ============================================================
 
+# ============================================================
+# ألوان الفريق (تحويل hex لـ RGB + لون نص متباين)
+# ============================================================
+
+def hex_to_rgb(hex_color, fallback=(60, 130, 90)):
+
+    if not hex_color:
+        return fallback
+
+    hex_color = hex_color.lstrip("#")
+
+    if len(hex_color) != 6:
+        return fallback
+
+    try:
+        return tuple(
+            int(hex_color[i:i + 2], 16) for i in (0, 2, 4)
+        )
+    except ValueError:
+        return fallback
+
+
+def contrasting_text_color(rgb):
+
+    r, g, b = rgb
+
+    luminance = (0.299 * r + 0.587 * g + 0.114 * b)
+
+    return (20, 20, 25) if luminance > 150 else (255, 255, 255)
+
+
+def blend(color_a, color_b, ratio):
+
+    return tuple(
+        int(a * (1 - ratio) + b * ratio)
+        for a, b in zip(color_a, color_b)
+    )
+
+
+PITCH_BASE = (18, 40, 28)
+
+
+# ============================================================
+# رسم أيقونة قميص بدل صورة اللاعب
+# ============================================================
+
+def draw_jersey_icon(draw, cx, cy, size, team_color, jersey_number):
+
+    text_color = contrasting_text_color(team_color)
+
+    half = size / 2
+
+    # جسم القميص (مستطيل بحواف دائرية)
+    draw.rounded_rectangle(
+        [(cx - half, cy - half), (cx + half, cy + half)],
+        radius=size * 0.18,
+        fill=team_color,
+        outline=(255, 255, 255),
+        width=2,
+    )
+
+    # فتحة الرقبة (نصف دائرة صغيرة فوق)
+    neck_r = size * 0.16
+
+    draw.ellipse(
+        [
+            (cx - neck_r, cy - half - neck_r * 0.4),
+            (cx + neck_r, cy - half + neck_r * 0.9),
+        ],
+        fill=PITCH_BASE,
+    )
+
+    if jersey_number:
+
+        font_num = ImageFont.truetype(
+            FONT_BOLD_PATH, int(size * 0.42)
+        )
+
+        draw.text(
+            (cx, cy + size * 0.05), str(jersey_number),
+            font=font_num, fill=text_color, anchor="mm",
+        )
+
+
+# ============================================================
+# رسم خطوط الملعب (نص ملعب واحد، من حرف لحرف)
+# ============================================================
+
+def draw_pitch_half(draw, x0, y0, x1, y1, goal_at_top):
+
+    line_color = (255, 255, 255, 60)
+    width_line = 2
+
+    # حدود النص
+    draw.rectangle(
+        [(x0, y0), (x1, y1)], outline=(255, 255, 255), width=width_line
+    )
+
+    pitch_width = x1 - x0
+
+    goal_box_w = pitch_width * 0.36
+    goal_box_h = (y1 - y0) * 0.14
+
+    goal_x0 = x0 + (pitch_width - goal_box_w) / 2
+    goal_x1 = goal_x0 + goal_box_w
+
+    if goal_at_top:
+        draw.rectangle(
+            [(goal_x0, y0), (goal_x1, y0 + goal_box_h)],
+            outline=(255, 255, 255), width=width_line,
+        )
+    else:
+        draw.rectangle(
+            [(goal_x0, y1 - goal_box_h), (goal_x1, y1)],
+            outline=(255, 255, 255), width=width_line,
+        )
+
+
+# ============================================================
+# الرسم الرئيسي
+# ============================================================
+
 def draw_lineup(match, competition_name, lineup_rows, players, teams):
 
     home = teams.get(match["home_team_id"], {})
@@ -259,6 +381,11 @@ def draw_lineup(match, competition_name, lineup_rows, players, teams):
 
     home_name = home.get("name_ar") or home.get("name") or "?"
     away_name = away.get("name_ar") or away.get("name") or "?"
+
+    home_color = hex_to_rgb(home.get("color"), fallback=(30, 90, 190))
+    away_color = hex_to_rgb(
+        away.get("color"), fallback=(190, 40, 40)
+    )
 
     competition_ar = COMPETITION_NAMES_AR.get(
         competition_name, competition_name
@@ -276,34 +403,68 @@ def draw_lineup(match, competition_name, lineup_rows, players, teams):
             group = position_group(entry.get("position"))
             rows[group].append(entry)
 
-        return [rows[r] for r in ROW_ORDER if rows[r]]
+        # من الحارس للهجوم (بره لجوه) عشان الرسم من طرف الملعب للنص
+        return [rows[r] for r in ["GK", "DEF", "MID", "FWD"] if rows[r]]
 
     home_rows = build_rows(match["home_team_id"])
     away_rows = build_rows(match["away_team_id"])
 
-    photo_size = 84
-    row_height = 150
-    section_gap = 40
+    width = 900
     banner_height = 130
+    jersey_size = 74
+    row_height = 155
+    margin = 30
 
-    max_rows_per_team = max(len(home_rows), len(away_rows))
+    max_rows = max(len(home_rows), len(away_rows), 1)
 
-    width = 1000
+    half_height = max_rows * row_height + 40
 
-    height = (
-        banner_height
-        + max_rows_per_team * row_height * 2
-        + section_gap
-    )
+    height = banner_height + half_height * 2
 
-    img = Image.new("RGB", (width, height), COLOR_BG)
+    img = Image.new("RGB", (width, height), PITCH_BASE)
     draw = ImageDraw.Draw(img)
 
-    font_title = ImageFont.truetype(FONT_BOLD_PATH, 30)
-    font_subtitle = ImageFont.truetype(FONT_REGULAR_PATH, 18)
-    font_name = ImageFont.truetype(FONT_BOLD_PATH, 17)
-    font_jersey = ImageFont.truetype(FONT_BOLD_PATH, 22)
+    # --- خلفية كل نص بلون الفريق (تعتيم خفيف فوق أرضية الملعب) ---
+    away_bg = blend(PITCH_BASE, away_color, 0.28)
+    home_bg = blend(PITCH_BASE, home_color, 0.28)
 
+    draw.rectangle(
+        [(0, banner_height), (width, banner_height + half_height)],
+        fill=away_bg,
+    )
+
+    draw.rectangle(
+        [(0, banner_height + half_height), (width, height)],
+        fill=home_bg,
+    )
+
+    # --- خطوط الملعب لكل نص ---
+    draw_pitch_half(
+        draw, margin, banner_height + margin,
+        width - margin, banner_height + half_height,
+        goal_at_top=True,
+    )
+
+    draw_pitch_half(
+        draw, margin, banner_height + half_height,
+        width - margin, height - margin,
+        goal_at_top=False,
+    )
+
+    # --- دائرة المنتصف (حيث يلتقي الفريقان) ---
+    mid_y = banner_height + half_height
+
+    draw.ellipse(
+        [(width / 2 - 55, mid_y - 55), (width / 2 + 55, mid_y + 55)],
+        outline=(255, 255, 255), width=2,
+    )
+
+    draw.line(
+        [(margin, mid_y), (width - margin, mid_y)],
+        fill=(255, 255, 255), width=2,
+    )
+
+    # --- بانر العنوان ---
     banner_color = COMPETITION_BANNER_COLOR.get(
         competition_name, (30, 41, 59)
     )
@@ -327,6 +488,9 @@ def draw_lineup(match, competition_name, lineup_rows, players, teams):
             away_logo,
         )
 
+    font_title = ImageFont.truetype(FONT_BOLD_PATH, 28)
+    font_subtitle = ImageFont.truetype(FONT_REGULAR_PATH, 17)
+
     draw_arabic_text(
         draw, (width / 2, banner_height * 0.4),
         f"{home_name}  🆚  {away_name}",
@@ -339,13 +503,18 @@ def draw_lineup(match, competition_name, lineup_rows, players, teams):
         font=font_subtitle, fill=(220, 220, 230), anchor="mm",
     )
 
-    def draw_team_rows(rows, y_start, reverse=False):
+    # --- رسم اللاعبين ---
+    font_name = ImageFont.truetype(FONT_BOLD_PATH, 17)
 
-        y = y_start
+    def draw_team(rows, team_color, top_y, direction):
+        """direction=1 يعني بنرسم من top_y نازلين (الفريق البعيد/away)،
+        direction=-1 يعني بنرسم من top_y طالعين لفوق (الفريق home)."""
 
-        ordered = list(reversed(rows)) if reverse else rows
+        for row_index, row_players in enumerate(rows):
 
-        for row_players in ordered:
+            row_y = top_y + direction * (
+                40 + row_index * row_height
+            )
 
             count = len(row_players)
             spacing = width / (count + 1)
@@ -353,27 +522,13 @@ def draw_lineup(match, competition_name, lineup_rows, players, teams):
             for i, entry in enumerate(row_players, start=1):
 
                 cx = spacing * i
-                cy = y + row_height / 2
+
+                draw_jersey_icon(
+                    draw, cx, row_y, jersey_size,
+                    team_color, entry.get("jersey_number"),
+                )
 
                 player = players.get(entry["player_id"], {})
-
-                photo_url = player.get("photo")
-                photo_img = get_circular_photo(photo_url, photo_size)
-
-                if photo_img:
-                    img.paste(
-                        photo_img,
-                        (
-                            int(cx - photo_size / 2),
-                            int(cy - photo_size / 2 - 15),
-                        ),
-                        photo_img,
-                    )
-                else:
-                    draw_fallback_circle(
-                        draw, cx, cy - 15, photo_size,
-                        entry.get("jersey_number"), font_jersey,
-                    )
 
                 name = (
                     player.get("name_ar")
@@ -381,22 +536,31 @@ def draw_lineup(match, competition_name, lineup_rows, players, teams):
                     or "?"
                 )
 
-                draw_arabic_text(
-                    draw, (cx, cy + photo_size / 2 + 8), name,
-                    font=font_name, fill=COLOR_TEXT, anchor="mm",
+                badge_y = row_y + jersey_size / 2 + 22
+
+                text_w = font_name.getlength(name) + 24
+
+                draw.rounded_rectangle(
+                    [
+                        (cx - text_w / 2, badge_y - 16),
+                        (cx + text_w / 2, badge_y + 16),
+                    ],
+                    radius=14,
+                    fill=(15, 15, 20),
+                    outline=(255, 255, 255),
+                    width=1,
                 )
 
-            y += row_height
+                draw_arabic_text(
+                    draw, (cx, badge_y), name,
+                    font=font_name, fill=(255, 255, 255), anchor="mm",
+                )
 
-        return y
+    # away: من فوق (جوار جولها) نازلين لحد نص الملعب
+    draw_team(away_rows, away_color, banner_height, direction=1)
 
-    y = banner_height
-
-    y = draw_team_rows(home_rows, y, reverse=False)
-
-    y += section_gap
-
-    draw_team_rows(away_rows, y, reverse=True)
+    # home: من تحت (جوار جولهم) طالعين لحد نص الملعب
+    draw_team(home_rows, home_color, height, direction=-1)
 
     return img
 
@@ -536,4 +700,4 @@ def main():
 if __name__ == "__main__":
     main()
 
-            
+    
