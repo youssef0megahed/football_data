@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 from lib.config import TIMEZONE, COMPETITIONS, validate_environment
 from lib.log import log
 from lib.espn_client import get_summary
-from lib.supabase_client import upsert, select
+from lib.supabase_client import upsert, select, supabase_request
 
 
 # ============================================================
@@ -162,14 +162,44 @@ def sync_team_stats(match_db_id, summary):
 
     for team_block in boxscore.get("teams", []):
 
-        source_team_id = str(
-            (team_block.get("team") or {}).get("id") or ""
-        )
+        team_info = team_block.get("team") or {}
+
+        source_team_id = str(team_info.get("id") or "")
 
         team_db_id = get_team_db_id(source_team_id)
 
         if not team_db_id:
             continue
+
+        # نحدّث ألوان الفريق من هنا كمان (مصدر مؤكد فيه اللون
+        # دايمًا)، عشان نضمن تعبئتها حتى لو مصدر المباريات
+        # العادي (scoreboard) ماكانش فيه اللون أصلًا.
+        team_color = team_info.get("color")
+        team_alt_color = team_info.get("alternateColor")
+
+        if team_color or team_alt_color:
+
+            color_update = {}
+
+            if team_color:
+                color_update["color"] = team_color
+
+            if team_alt_color:
+                color_update["alternate_color"] = team_alt_color
+
+            try:
+                supabase_request(
+                    "PATCH",
+                    "teams",
+                    params={"id": f"eq.{team_db_id}"},
+                    json_body=color_update,
+                    extra_headers={"Prefer": "return=minimal"},
+                )
+            except Exception as error:
+                log(
+                    f"WARNING: failed to update team color "
+                    f"team_id={team_db_id}: {error}"
+                )
 
         stat_list = team_block.get("statistics", [])
 
