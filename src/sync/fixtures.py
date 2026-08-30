@@ -75,6 +75,8 @@ def extract_teams(scoreboard):
             teams[str(team_id)] = {
                 "name": team.get("displayName") or team.get("name"),
                 "logo": team.get("logo"),
+                "color": team.get("color"),
+                "alternate_color": team.get("alternateColor"),
                 "source": "espn",
                 "source_id": str(team_id),
             }
@@ -277,3 +279,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+    
